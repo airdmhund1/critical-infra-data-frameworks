@@ -1,0 +1,78 @@
+# Example: Energy Sector — EV Charging Station Telemetry
+# This configuration demonstrates how an energy-infrastructure
+# data source would be onboarded into the ingestion framework.
+---
+schema_version: "1.0"
+
+source:
+  name: "ev_charger_telemetry"
+  description: "Real-time telemetry data from distributed EV charging stations"
+  owner: "grid-operations"
+  classification: "internal"
+
+connection:
+  type: "stream"
+  protocol: "websocket"
+  endpoint: "${OCPP_GATEWAY_URL}"
+  message_format: "json"
+  credentials_ref: "vault://secrets/ocpp-gateway"
+  tls:
+    enabled: true
+    certificate_ref: "vault://certs/ocpp-client"
+
+ingestion:
+  mode: "streaming"
+  batch_interval_seconds: 30
+  max_batch_size: 5000
+  parallelism: 4
+
+schema_enforcement:
+  mode: "permissive"
+  schema_ref: "schemas/charger_telemetry_v1.json"
+
+quality_rules:
+  - rule: "completeness"
+    columns: ["station_id", "timestamp", "energy_kwh", "status"]
+    threshold: 0.95
+
+  - rule: "range_check"
+    column: "energy_kwh"
+    min: 0
+    max: 500
+
+  - rule: "timeliness"
+    column: "timestamp"
+    max_staleness_hours: 1
+
+quarantine:
+  enabled: true
+  destination: "bronze.quarantine.ev_charger_telemetry"
+  error_classification: true
+  alert_threshold: 0.10
+
+target:
+  bronze:
+    path: "bronze/energy/charger_telemetry"
+    format: "parquet"
+    partition_by: ["date", "station_region"]
+    retention_days: 1095
+
+  silver:
+    path: "silver/energy/charger_telemetry"
+    format: "delta"
+    partition_by: ["date", "station_id"]
+    merge_key: ["station_id", "timestamp"]
+
+monitoring:
+  sla:
+    max_latency_seconds: 60
+    alert_channels: ["grid-ops", "reliability-team"]
+  metrics:
+    - throughput_events_per_second
+    - processing_latency_ms
+    - quality_pass_rate
+    - station_coverage_percent
+
+audit:
+  lineage_tracking: true
+  record_counts: true
