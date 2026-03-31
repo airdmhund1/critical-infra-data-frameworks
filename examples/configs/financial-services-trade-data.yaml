@@ -1,0 +1,91 @@
+# Example: Financial Services — Regulatory Trade Data Source
+# This configuration demonstrates how a regulatory data source
+# would be onboarded into the ingestion framework.
+---
+schema_version: "1.0"
+
+source:
+  name: "regulatory_trade_data"
+  description: "Daily trade reporting dataset for regulatory submissions"
+  owner: "risk-data-team"
+  classification: "confidential"
+
+connection:
+  type: "jdbc"
+  driver: "oracle"
+  host: "${DB_HOST}"
+  port: 1521
+  database: "TRADEDB"
+  schema: "RISK_REPORTING"
+  table: "DAILY_TRADES"
+  credentials_ref: "vault://secrets/tradedb"
+
+ingestion:
+  mode: "incremental"
+  partition_column: "trade_date"
+  partition_type: "date"
+  fetch_size: 10000
+  parallelism: 8
+  watermark:
+    column: "last_modified_ts"
+    format: "yyyy-MM-dd HH:mm:ss"
+
+schema_enforcement:
+  mode: "strict"
+  schema_ref: "schemas/trade_data_v3.json"
+  nullable_columns:
+    - "counterparty_region"
+    - "settlement_notes"
+
+quality_rules:
+  - rule: "completeness"
+    columns: ["trade_id", "trade_date", "amount", "currency"]
+    threshold: 0.99
+
+  - rule: "referential_integrity"
+    column: "counterparty_id"
+    reference_table: "dim_counterparty"
+    reference_column: "id"
+
+  - rule: "range_check"
+    column: "amount"
+    min: 0
+    max: 999999999
+
+  - rule: "timeliness"
+    column: "trade_date"
+    max_staleness_hours: 24
+
+quarantine:
+  enabled: true
+  destination: "bronze.quarantine.regulatory_trade_data"
+  error_classification: true
+  alert_threshold: 0.05
+
+target:
+  bronze:
+    path: "bronze/regulatory/trade_data"
+    format: "parquet"
+    partition_by: ["trade_date"]
+    retention_days: 2555
+
+  silver:
+    path: "silver/regulatory/trade_data"
+    format: "delta"
+    partition_by: ["trade_date", "currency"]
+    merge_key: ["trade_id"]
+
+monitoring:
+  sla:
+    completion_deadline: "06:00"
+    alert_channels: ["ops-team", "risk-reporting"]
+  metrics:
+    - throughput_rows_per_minute
+    - processing_duration_seconds
+    - quality_pass_rate
+    - quarantine_rate
+
+audit:
+  lineage_tracking: true
+  record_counts: true
+  checksum_validation: true
