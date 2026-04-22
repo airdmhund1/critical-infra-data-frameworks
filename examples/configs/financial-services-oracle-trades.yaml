@@ -1,0 +1,74 @@
+# Source:      Trade Execution Records — Oracle
+# Sector:      Financial Services
+# Description: Ingests trade execution records from the firm's Oracle trading
+#              database (TRADEDB) using watermark-based incremental extraction
+#              on TRADE_TIMESTAMP. Runs every four hours during market hours.
+#              Raw records land in the Bronze Delta table partitioned by trade
+#              date and asset class. Write-once enforcement on the Bronze path
+#              supports Dodd-Frank immutable recordkeeping obligations.
+# Compliance:  Dodd-Frank Act (17 CFR Part 45), NIST CSF 2.0, NCS 2023
+
+schemaVersion: "1.0"
+
+metadata:
+  sourceId: "fs-oracle-trades-001"
+  sourceName: "Trade Execution Records — Oracle"
+  sector: "financial-services"
+  owner: "trade-data-engineering"
+  environment: "prod"
+  tags:
+    - "dodd-frank"
+    - "tier-1"
+    - "trade-reporting"
+
+connection:
+  type: "jdbc"
+  credentialsRef: "vault://secret/prod/oracle-trades/jdbc-credentials"
+  host: "oracle-trading-prod.internal.example.com"
+  port: 1521
+  database: "TRADEDB"
+  jdbcDriver: "oracle"
+
+ingestion:
+  mode: "incremental"
+  incrementalColumn: "TRADE_TIMESTAMP"
+  watermarkStorage: "s3://pipeline-state/watermarks/fs-oracle-trades-001"
+  batchSize: 25000
+  parallelism: 8
+  schedule: "0 */4 * * *"
+  timeout: 7200
+
+schemaEnforcement:
+  enabled: true
+  mode: "strict"
+  registryRef: "schemas/financial-services/trade-execution-v2.json"
+
+qualityRules:
+  enabled: false
+
+quarantine:
+  enabled: true
+  path: "s3://datalake-quarantine/financial-services/oracle-trades/"
+  retentionDays: 365
+  errorClassification: true
+
+storage:
+  layer: "bronze"
+  format: "delta"
+  path: "s3://datalake-bronze/financial-services/oracle-trades/"
+  partitionBy:
+    - "trade_date"
+    - "asset_class"
+  compactionEnabled: true
+
+monitoring:
+  metricsEnabled: true
+  prometheusPort: 9091
+  slaThresholdSeconds: 3600
+  alertOnFailure: true
+
+audit:
+  enabled: true
+  lineageTracking: true
+  immutableRawEnabled: true
+  retentionDays: 2555
