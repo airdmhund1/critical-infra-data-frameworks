@@ -22,7 +22,7 @@ import scala.util.{Failure, Success, Try}
 //   3. Map    — convert the validated JsonNode into a SourceConfig domain object
 //
 // S3 URI support is explicitly deferred (see parse step).
-// Credentials are stored as-is; resolution is deferred to Branch 4.
+// Credentials are resolved at load time via the SecretsResolver passed to load().
 // =============================================================================
 
 /** Loads and validates a YAML or HOCON source configuration file, producing a fully mapped
