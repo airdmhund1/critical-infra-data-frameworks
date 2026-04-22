@@ -45,73 +45,26 @@ jobs:
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------------
-      # 2. Compute the ISO week number for the NVD cache key.
-      #
-      # This step must run before the cache step because GitHub Actions
-      # evaluates env.* expressions in subsequent steps at runtime, not at
-      # job-startup time.  The value is written to GITHUB_ENV so that all
-      # subsequent steps in the job can reference it via ${{ env.WEEK_NUMBER }}.
+      # Run OWASP Dependency-Check
+      # Fails the build on any dependency with CVSS score >= 7.0 (HIGH/CRITICAL)
       # -----------------------------------------------------------------------
-      - name: Compute ISO week number for cache key
-        run: echo "WEEK_NUMBER=$(date +%V)" >> "$GITHUB_ENV"
-
-      # -----------------------------------------------------------------------
-      # 3. Cache the NVD database
-      #
-      # Keyed on the ISO week number so the cache is considered stale and
-      # refreshed automatically once per week.  A stale cache is not an error —
-      # OWASP DC will re-download any missing data.
-      # -----------------------------------------------------------------------
-      - name: Cache NVD database
-        uses: actions/cache@v4
-        with:
-          path: ~/.dependency-check/data
-          # Week number rotates every 7 days; the cache will be refreshed on
-          # the first run of each new calendar week.
-          key: nvd-db-${{ runner.os }}-week${{ env.WEEK_NUMBER }}
-          restore-keys: |
-            nvd-db-${{ runner.os }}-
-
-      # -----------------------------------------------------------------------
-      # 4. Run OWASP Dependency-Check
-      #
-      # Action ref is pinned to a specific release tag, not @main, to satisfy
-      # the "pinned versions for base images and dependencies" standard.
-      #
-      # Key flags:
-      #   --failOnCVSS 7   — fail on HIGH (7.0-8.9) or CRITICAL (9.0-10.0)
-      #   --enableExperimental — activates the sbt/ivy analyser
-      #   --nvdApiKey      — optional; accelerates NVD data sync if the secret
-      #                      is present, silently ignored if it is not
-      # -----------------------------------------------------------------------
-      - name: Run OWASP Dependency-Check
+      - name: OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
+        id: depcheck
         env:
           JAVA_HOME: /opt/jdk
-          JAVA_OPTS: "-Xmx2g"
         with:
-          project: critical-infra-data-frameworks
+          project: 'critical-infra-data-frameworks'
           path: '.'
-          format: 'ALL'           # produces HTML, XML, JSON and SARIF reports
-          args: >-
+          format: 'HTML'
+          out: 'reports'
+          args: >
             --failOnCVSS 7
-            --enableExperimental
-            --suppression .github/dependency-check-suppressions.xml
-            --data ~/.dependency-check/data
-          nvdApiKey: ${{ secrets.NVD_API_KEY }}
+            --enableRetired
 
-      # -----------------------------------------------------------------------
-      # 5. Upload the HTML/XML/JSON scan report as a workflow artifact
-      #
-      # Engineers can download the artifact from the Actions UI to inspect
-      # exactly which CVE(s) triggered the failure and review suppression
-      # options.  Retained for 14 days to cover typical sprint cycles.
-      # -----------------------------------------------------------------------
-      - name: Upload Dependency-Check report
-        if: always()   # upload even when the scan step fails so the report is
-                       # always available for investigation
+      - name: Upload dependency check report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: dependency-check-report-${{ github.run_id }}
-          path: reports/
-          retention-days: 14
+          name: dependency-check-report
+          path: ${{ github.workspace }}/reports
