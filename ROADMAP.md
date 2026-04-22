@@ -3,8 +3,7 @@
 ## Phased Release Plan
 
 This document outlines the planned development and release phases for the
-Critical Infrastructure Data Frameworks project. All timelines begin upon
-the author's receipt of U.S. employment authorisation.
+Critical Infrastructure Data Frameworks project.
 
 ---
 
