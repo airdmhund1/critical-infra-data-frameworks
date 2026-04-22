@@ -3,6 +3,8 @@
 **Standardized, open-source reference architectures for secure, reliable data systems in regulated critical-infrastructure sectors.**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/ci.yml/badge.svg)](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/ci.yml)
+[![Dependency Check](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/dependency-check.yml/badge.svg)](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/dependency-check.yml)
 
 ## Overview
 
