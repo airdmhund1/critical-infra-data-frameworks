@@ -1,2 +1,63 @@
 CLAUDE.md
-.claude*
+.claude*# sbt build artifacts
+target/
+project/target/
+project/project/
+
+# Class files
+*.class
+
+# IDE files
+.idea/
+.idea_modules/
+*.iml
+.vscode/
+*.code-workspace
+
+# Metals / BSP (Scala IDE tooling)
+.metals/
+.bsp/
+.bloop/
+
+# Scalafmt cache
+.scalafmt-cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Secrets and credentials — NEVER commit these
+.env
+*.env
+*.credentials
+*.credential
+local.conf
+secrets.conf
+application.local.conf
+
+# Log files
+*.log
+logs/
+
+# Spark event logs
+spark-warehouse/
+derby.log
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Docker
+.dockerignore
+
+# Temp files
+*.tmp
+*.swp
+*.swo
+*~
+.claude/worktrees/
