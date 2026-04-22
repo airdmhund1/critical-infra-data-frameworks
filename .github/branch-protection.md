@@ -37,7 +37,7 @@ search field. These names come directly from the workflow YAML files:
 
 | Workflow file                          | Exact job name to enter    |
 |----------------------------------------|----------------------------|
-| `.github/workflows/ci.yml`             | `build`                    |
+| `.github/workflows/ci.yml`             | `build-test`               |
 | `.github/workflows/dependency-check.yml` | `owasp-dependency-check` |
 
 > Note: GitHub only surfaces a job name in the status-check search box after that job has
@@ -69,7 +69,7 @@ Use this checklist when applying the settings:
 - [ ] Branch name pattern set to `main`
 - [ ] "Require a pull request before merging" enabled, minimum 1 approving review
 - [ ] "Require status checks to pass before merging" enabled
-- [ ] Required status check added: `build`
+- [ ] Required status check added: `build-test`
 - [ ] Required status check added: `owasp-dependency-check`
 - [ ] "Require branches to be up to date before merging" enabled
 - [ ] "Do not allow bypassing the above settings" enabled
