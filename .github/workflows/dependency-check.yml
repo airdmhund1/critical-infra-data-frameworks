@@ -95,11 +95,9 @@ jobs:
             --enableExperimental
             --suppression .github/dependency-check-suppressions.xml
             --data ~/.dependency-check/data
+          nvdApiKey: ${{ secrets.NVD_API_KEY }}
         env:
-          # Optional NVD API key — gracefully absent if the secret is not set.
-          # The action passes this through to the OWASP DC CLI internally.
           JAVA_OPTS: "-Xmx2g"
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
       # -----------------------------------------------------------------------
       # 5. Upload the HTML/XML/JSON scan report as a workflow artifact
