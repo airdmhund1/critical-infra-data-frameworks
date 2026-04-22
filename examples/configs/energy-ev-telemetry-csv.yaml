@@ -1,0 +1,72 @@
+# Source:      EV Charging Station Telemetry — CSV
+# Sector:      Energy
+# Description: Ingests nightly CSV telemetry drops from EV charging stations
+#              across the operator's grid region. Files land at a monitored
+#              inbound path; the pipeline performs a full load each run,
+#              partitioning output by ingestion date and station region.
+#              Strict schema enforcement quarantines malformed telemetry
+#              records rather than writing corrupt data to Bronze.
+#              Five-year retention satisfies NERC CIP-007 and CIP-008
+#              event-log and incident-response recordkeeping requirements.
+# Compliance:  NERC CIP (CIP-007 R5, CIP-008 R3), NIST CSF 2.0, NCS 2023
+
+schemaVersion: "1.0"
+
+metadata:
+  sourceId: "energy-ev-telemetry-csv-001"
+  sourceName: "EV Charging Station Telemetry — CSV"
+  sector: "energy"
+  owner: "grid-data-engineering"
+  environment: "prod"
+  tags:
+    - "nerc-cip"
+    - "ev-infrastructure"
+    - "telemetry"
+
+connection:
+  type: "file"
+  credentialsRef: "vault://secret/prod/ev-telemetry/storage-credentials"
+  filePath: "/data/inbound/ev-telemetry/"
+  fileFormat: "csv"
+
+ingestion:
+  mode: "full"
+  batchSize: 50000
+  parallelism: 4
+  schedule: "0 2 * * *"
+  timeout: 5400
+
+schemaEnforcement:
+  enabled: true
+  mode: "strict"
+  registryRef: "schemas/energy/ev-charging-telemetry-v1.json"
+
+qualityRules:
+  enabled: false
+
+quarantine:
+  enabled: true
+  path: "s3://datalake-quarantine/energy/ev-telemetry/"
+  retentionDays: 180
+  errorClassification: true
+
+storage:
+  layer: "bronze"
+  format: "delta"
+  path: "s3://datalake-bronze/energy/ev-telemetry/"
+  partitionBy:
+    - "ingestion_date"
+    - "station_region"
+  compactionEnabled: false
+
+monitoring:
+  metricsEnabled: true
+  prometheusPort: 9092
+  slaThresholdSeconds: 3600
+  alertOnFailure: true
+
+audit:
+  enabled: true
+  lineageTracking: true
+  immutableRawEnabled: true
+  retentionDays: 1825
