@@ -57,25 +57,27 @@ object ConfigLoader {
   /** Loads a source configuration file, validates it against the JSON Schema, and maps it to a
     * [[SourceConfig]] domain object.
     *
-    * The `resolver` parameter is accepted for API consistency with the ingestion engine contract
-    * but secrets resolution is deferred to Branch 4. The `credentialsRef` field in the returned
-    * [[Connection]] carries the raw reference string, unresolved.
+    * The pipeline is: parse → validate → map → resolve credentials. Secrets resolution happens
+    * last: once the YAML is validated the `credentialsRef` vault/KMS path is passed to `resolver`
+    * and, if successful, replaced by the resolved plaintext value in the returned [[Connection]].
+    * The resolved value is never written to any log.
     *
     * @param path
     *   Absolute or relative filesystem path to the configuration file. Files with a `.yaml` or
     *   `.yml` extension are parsed as YAML. Files with a `.conf` or `.hocon` extension are parsed
     *   as HOCON. S3 URIs (`s3://`, `s3a://`) are explicitly rejected — use a local path.
     * @param resolver
-    *   Secrets resolver instance (unused until Branch 4).
+    *   Secrets resolver used to exchange the `credentialsRef` vault/KMS path for the actual secret
+    *   value. If resolution fails the load returns `Left(SecretsResolutionError)`.
     * @return
     *   `Right(SourceConfig)` on success, or a `Left(ConfigLoadError)` describing the first error
-    *   encountered in the parse → validate → map pipeline.
+    *   encountered in the parse → validate → map → resolve pipeline.
     */
   def load(path: String, resolver: SecretsResolver): Either[ConfigLoadError, SourceConfig] =
     for {
       node   <- parse(path)
       _      <- validate(node)
-      config <- mapToSourceConfig(node)
+      config <- mapToSourceConfig(node, resolver)
     } yield config
 
   // ---------------------------------------------------------------------------
@@ -189,26 +191,39 @@ object ConfigLoader {
     }
   }
 
-  /** Extract a human-readable dot-separated field path from a [[ValidationMessage]]. The networknt
-    * library uses `$` as the root prefix in its path strings; we strip that prefix to match the
-    * convention in [[SchemaValidationError]].
+  /** Extract a human-readable dot-separated field path from a [[ValidationMessage]].
+    *
+    * networknt 1.4.x uses the `LEGACY` path type by default, which emits instance locations in
+    * `$`-prefixed dot notation: `$` for the root object and `$.section.field` for nested paths. We
+    * strip the `$.` prefix to produce a clean dot-path (e.g. `$.metadata.sector` becomes
+    * `metadata.sector`). Root-level violations (`$` or an unexpectedly empty string) are normalised
+    * to the sentinel `"(root)"`.
+    *
+    * [[ValidationMessage.getInstanceLocation]] is used (not `getEvaluationPath`) because it
+    * identifies the location in the JSON *instance* that failed validation; `getEvaluationPath`
+    * gives the path to the failing *schema* keyword instead.
     */
   private def extractField(msg: ValidationMessage): String = {
     val raw = msg.getInstanceLocation.toString
-    if (raw == "$" || raw.isEmpty) "root"
-    else raw.stripPrefix("$.").stripPrefix("$")
+    raw match {
+      case "$" | "" => "(root)"
+      case other    => other.stripPrefix("$.").stripPrefix("$")
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Step 3 — Map JsonNode to SourceConfig
   // ---------------------------------------------------------------------------
 
-  private def mapToSourceConfig(node: JsonNode): Either[ConfigLoadError, SourceConfig] =
+  private def mapToSourceConfig(
+      node: JsonNode,
+      resolver: SecretsResolver
+  ): Either[ConfigLoadError, SourceConfig] =
     Try {
       for {
         schemaVersion <- requireString(node, "schemaVersion")
         metadata      <- mapMetadata(node.get("metadata"))
-        connection    <- mapConnection(node.get("connection"))
+        connection    <- mapConnection(node.get("connection"), resolver)
         ingestion     <- mapIngestion(node.get("ingestion"))
         schemaEnf     <- mapSchemaEnforcement(node.get("schemaEnforcement"))
         qualityRules  <- mapQualityRules(node.get("qualityRules"))
@@ -256,12 +271,17 @@ object ConfigLoader {
       tags = tags
     )
 
-  private def mapConnection(node: JsonNode): Either[ConfigLoadError, Connection] =
+  private def mapConnection(
+      node: JsonNode,
+      resolver: SecretsResolver
+  ): Either[ConfigLoadError, Connection] =
     for {
       typeStr        <- requireString(node, "type")
       connectionType <- parseConnectionType(typeStr)
-      // TODO: resolve credentials in Branch 4
-      credentialsRef <- requireString(node, "credentialsRef")
+      rawRef         <- requireString(node, "credentialsRef")
+      // Resolve the vault/KMS reference to the actual secret value at load time.
+      // The resolved value is stored in credentialsRef and must never be logged.
+      credentialsRef <- resolver.resolve(rawRef)
       host          = optString(node, "host")
       port          = optInt(node, "port")
       database      = optString(node, "database")
