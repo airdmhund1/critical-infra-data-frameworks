@@ -101,4 +101,31 @@ object Dependencies {
     sparkCoreTest,
     sparkSqlTest
   )
+
+  // ---------------------------------------------------------------------------
+  // Config loader — YAML parsing and JSON Schema validation
+  // ---------------------------------------------------------------------------
+
+  /** SnakeYAML — YAML parsing (explicit declaration; frequently a transitive dep). */
+  val snakeYaml: ModuleID =
+    "org.yaml" % "snakeyaml" % "2.2"
+
+  /** networknt JSON Schema Validator — Draft 2019-09 compatible schema validation. */
+  val jsonSchemaValidator: ModuleID =
+    "com.networknt" % "json-schema-validator" % "1.4.3"
+
+  /** Jackson Databind — JSON/YAML node manipulation required by networknt validator. */
+  val jacksonDatabind: ModuleID =
+    "com.fasterxml.jackson.core" % "jackson-databind" % "2.17.2"
+
+  /** Jackson YAML dataformat — YAML-to-JsonNode conversion via YAMLFactory. */
+  val jacksonYaml: ModuleID =
+    "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.17.2"
+
+  val configLoader: Seq[ModuleID] = Seq(
+    snakeYaml,
+    jsonSchemaValidator,
+    jacksonDatabind,
+    jacksonYaml
+  )
 }
