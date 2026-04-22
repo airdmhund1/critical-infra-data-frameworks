@@ -1,0 +1,70 @@
+# =============================================================================
+# OWASP Dependency-Check — vulnerability scan for the full dependency tree
+#
+# Runs on every push to main and on every pull request.  The job is kept in a
+# dedicated workflow (not inline in ci.yml) because the NVD database download
+# can take several minutes and must not inflate the core compile/test cycle
+# past the 12-minute target.
+#
+# Failure policy: any dependency with a CVSS score >= 7.0 (HIGH or CRITICAL)
+# causes the job to exit non-zero, blocking the PR from merging.
+#
+# NVD API key: optional.  Without it, OWASP DC uses the public NVD data feed
+# (slower download, same result).  To accelerate NVD data sync, add an
+# NVD_API_KEY repository secret obtained from https://nvd.nist.gov/developers/request-an-api-key
+# =============================================================================
+
+name: Dependency Vulnerability Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# Cancel in-flight scans for the same ref so stale runs do not queue up.
+concurrency:
+  group: dependency-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read        # checkout only
+  security-events: write  # allow SARIF upload if added in future
+
+jobs:
+  owasp-dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Run OWASP Dependency-Check
+      # Fails the build on any dependency with CVSS score >= 7.0 (HIGH/CRITICAL)
+      # -----------------------------------------------------------------------
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        id: depcheck
+        env:
+          JAVA_HOME: /opt/jdk
+        with:
+          project: 'critical-infra-data-frameworks'
+          path: '.'
+          format: 'HTML'
+          out: 'reports'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+
+      - name: Upload dependency check report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: ${{ github.workspace }}/reports
