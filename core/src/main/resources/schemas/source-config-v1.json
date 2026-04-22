@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "https://github.com/airdmhund1/critical-infra-data-frameworks/schemas/source-config-v1.json",
+  "title": "Source Configuration v1.0",
+  "description": "Validates a YAML-driven source configuration file consumed by the critical-infrastructure ingestion engine at pipeline startup.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "metadata",
+    "connection",
+    "ingestion",
+    "schemaEnforcement",
+    "qualityRules",
+    "quarantine",
+    "storage",
+    "monitoring",
+    "audit"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Version of this schema specification the config file conforms to; the runtime validator rejects configs whose version it does not recognise.",
+      "enum": ["1.0"]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Identity and classification of the data source, written to every audit log entry and the lineage catalog.",
+      "required": [
+        "sourceId",
+        "sourceName",
+        "sector",
+        "owner",
+        "environment"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "description": "Machine-readable unique identifier for this source used as the primary key in the lineage catalog (lowercase, hyphens only)."
+        },
+        "sourceName": {
+          "type": "string",
+          "description": "Human-readable display name shown in dashboards and alerts."
+        },
+        "sector": {
+          "type": "string",
+          "description": "Regulated sector this source belongs to.",
+          "enum": [
+            "financial-services",
+            "energy",
+            "healthcare",
+            "government"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "description": "Team or individual accountable for this source, used for alert routing."
+        },
+        "environment": {
+          "type": "string",
+          "description": "Deployment environment; controls default retention policies and alert severity.",
+          "enum": [
+            "dev",
+            "staging",
+            "prod"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "description": "Arbitrary labels for grouping sources in dashboards.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "connection": {
+      "type": "object",
+      "description": "Connectivity details for the source system; conditional fields are enforced based on the value of the type property.",
+      "required": [
+        "type",
+        "credentialsRef"
+      ],
+      "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          { "required": ["password"] },
+          { "required": ["secret"] },
+          { "required": ["token"] },
+          { "required": ["key"] },
+          { "required": ["credential"] }
+        ]
+      },
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Source system type that determines which connector class the engine loads.",
+          "enum": [
+            "jdbc",
+            "file",
+            "kafka",
+            "api"
+          ]
+        },
+        "credentialsRef": {
+          "type": "string",
+          "description": "Path to credentials in the external secrets manager (Vault or AWS KMS); never a literal credential."
+        },
+        "host": {
+          "type": "string",
+          "description": "Hostname or IP of the source server; required when type is jdbc or api."
+        },
+        "port": {
+          "type": "integer",
+          "description": "Port number of the source server; required when type is jdbc or api."
+        },
+        "database": {
+          "type": "string",
+          "description": "Database or catalog name on the source server; required when type is jdbc."
+        },
+        "jdbcDriver": {
+          "type": "string",
+          "description": "JDBC driver to load; required when type is jdbc.",
+          "enum": [
+            "oracle",
+            "postgres",
+            "teradata"
+          ]
+        },
+        "filePath": {
+          "type": "string",
+          "description": "Absolute path or URI to the source file or directory; required when type is file."
+        },
+        "fileFormat": {
+          "type": "string",
+          "description": "File format to parse; required when type is file.",
+          "enum": [
+            "csv",
+            "parquet",
+            "json",
+            "avro"
+          ]
+        },
+        "kafkaTopic": {
+          "type": "string",
+          "description": "Kafka topic name to consume from; required when type is kafka."
+        },
+        "kafkaBootstrapServers": {
+          "type": "string",
+          "description": "Comma-separated list of Kafka broker addresses; required when type is kafka."
+        }
+      }
+    },
+    "ingestion": {
+      "type": "object",
+      "description": "Controls the extraction strategy, parallelism, scheduling, and timeout for a pipeline run.",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "description": "Extraction strategy: full loads all available data; incremental loads only records added or modified since the last watermark.",
+          "enum": [
+            "full",
+            "incremental"
+          ]
+        },
+        "incrementalColumn": {
+          "type": "string",
+          "description": "Column used to determine new or changed records; required when mode is incremental and must be a monotonically increasing timestamp or integer."
+        },
+        "watermarkStorage": {
+          "type": "string",
+          "description": "URI where the engine persists the last-seen watermark value between runs; required when mode is incremental."
+        },
+        "batchSize": {
+          "type": "integer",
+          "description": "Number of rows fetched per JDBC round-trip or file chunk.",
+          "default": 10000
+        },
+        "parallelism": {
+          "type": "integer",
+          "description": "Number of concurrent Spark tasks for extraction.",
+          "default": 4
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Cron expression defining when the pipeline runs automatically; if absent the pipeline is triggered externally by the orchestrator."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Maximum wall-clock seconds the engine will wait for extraction to complete before aborting and raising an alert.",
+          "default": 3600
+        }
+      }
+    },
+    "schemaEnforcement": {
+      "type": "object",
+      "description": "Controls whether extracted records are validated against a declared schema before being written to storage.",
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "If false, schema validation is skipped and all records proceed to storage regardless of structure."
+        },
+        "mode": {
+          "type": "string",
+          "description": "Enforcement strictness; required when enabled is true: strict rejects any record with an unexpected column or type mismatch, permissive routes violating records to quarantine.",
+          "enum": [
+            "strict",
+            "permissive"
+          ]
+        },
+        "registryRef": {
+          "type": "string",
+          "description": "Path to the JSON Schema document in the schema registry; required when enabled is true and fetched by the engine at pipeline startup."
+        }
+      }
+    },
+    "qualityRules": {
+      "type": "object",
+      "description": "Reserved for Phase 2 (v0.2.0); in v0.1.0 the only valid configuration is enabled: false and no other fields are accepted.",
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Must be false in v0.1.0; setting to true will cause a validator error until the v0.2.0 engine is deployed.",
+          "const": false
+        }
+      }
+    },
+    "quarantine": {
+      "type": "object",
+      "description": "Defines where failed records are written and how errors are classified so that no record is ever silently dropped.",
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "If false, failed records are discarded rather than quarantined; only acceptable in development environments with explicit justification."
+        },
+        "path": {
+          "type": "string",
+          "description": "URI of the quarantine storage location; required when enabled is true and must differ from the Bronze storage path."
+        },
+        "retentionDays": {
+          "type": "integer",
+          "description": "Number of days quarantined records are retained before deletion.",
+          "default": 90
+        },
+        "errorClassification": {
+          "type": "boolean",
+          "description": "If true, each quarantined record is tagged with a structured error code identifying which validation rule it failed.",
+          "default": true
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "description": "Defines where and how successfully validated records are written to the lakehouse Bronze layer.",
+      "required": [
+        "layer",
+        "format",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "layer": {
+          "type": "string",
+          "description": "Target lakehouse layer; in v0.1.0 only bronze is supported by the ingestion engine.",
+          "enum": [
+            "bronze",
+            "silver",
+            "gold"
+          ]
+        },
+        "format": {
+          "type": "string",
+          "description": "Storage format providing ACID transactions, time travel, and schema evolution required for audit compliance.",
+          "enum": [
+            "delta",
+            "iceberg"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "URI of the target storage location."
+        },
+        "partitionBy": {
+          "type": "array",
+          "description": "List of column names used to partition the output dataset.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "compactionEnabled": {
+          "type": "boolean",
+          "description": "If true, the engine runs a compaction step after each write to merge small files.",
+          "default": false
+        }
+      }
+    },
+    "monitoring": {
+      "type": "object",
+      "description": "Controls the Prometheus metrics endpoint and SLA alerting emitted during a pipeline run.",
+      "required": [
+        "metricsEnabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "metricsEnabled": {
+          "type": "boolean",
+          "description": "If true, the engine exposes a Prometheus metrics endpoint on prometheusPort for the duration of the pipeline run."
+        },
+        "prometheusPort": {
+          "type": "integer",
+          "description": "Port on which the Prometheus metrics endpoint is exposed; required when metricsEnabled is true.",
+          "default": 9090
+        },
+        "slaThresholdSeconds": {
+          "type": "integer",
+          "description": "Maximum acceptable wall-clock duration for a complete pipeline run in seconds; exceeding this value emits an SLA breach event."
+        },
+        "alertOnFailure": {
+          "type": "boolean",
+          "description": "If true, the engine emits an alert when the pipeline terminates with a failure status.",
+          "default": true
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "description": "Controls the audit trail written to the lineage catalog per pipeline run, directly supporting Dodd-Frank, NERC CIP, and NIST CSF compliance requirements.",
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "If false, no audit records are written; must be true in staging and prod environments."
+        },
+        "lineageTracking": {
+          "type": "boolean",
+          "description": "If true, the engine records source-to-target lineage for every pipeline run including source system, extraction timestamp, record counts, target path, and schema version.",
+          "default": true
+        },
+        "immutableRawEnabled": {
+          "type": "boolean",
+          "description": "If true, the engine enforces that the Bronze layer path is write-once with no overwrites or deletes permitted after initial write.",
+          "default": true
+        },
+        "retentionDays": {
+          "type": "integer",
+          "description": "Number of days audit records are retained; default of 2555 days (7 years) matches common U.S. financial services retention requirements.",
+          "default": 2555
+        }
+      }
+    }
+  }
+}
