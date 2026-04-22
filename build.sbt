@@ -85,6 +85,7 @@ lazy val core = project
         Dependencies.delta ++
         Dependencies.config ++
         Dependencies.logging ++
+        Dependencies.configLoader ++
         Dependencies.test,
     // Fat JAR: exclude Scala library — already present on the Spark cluster classpath
     assembly / assemblyOption :=
