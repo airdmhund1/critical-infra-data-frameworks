@@ -88,6 +88,7 @@ jobs:
         uses: dependency-check/Dependency-Check_Action@main
         env:
           JAVA_HOME: /opt/jdk
+          JAVA_OPTS: "-Xmx2g"
         with:
           project: critical-infra-data-frameworks
           path: '.'
@@ -98,8 +99,6 @@ jobs:
             --suppression .github/dependency-check-suppressions.xml
             --data ~/.dependency-check/data
           nvdApiKey: ${{ secrets.NVD_API_KEY }}
-        env:
-          JAVA_OPTS: "-Xmx2g"
 
       # -----------------------------------------------------------------------
       # 5. Upload the HTML/XML/JSON scan report as a workflow artifact
