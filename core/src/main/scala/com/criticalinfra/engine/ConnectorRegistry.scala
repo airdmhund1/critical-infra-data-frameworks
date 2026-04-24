@@ -21,34 +21,36 @@ import com.criticalinfra.config.ConnectionType
   * [[SourceConnector]] implementations.
   *
   * Connectors are registered at engine startup by supplying a complete `Map` to the constructor;
-  * there is no mechanism to add or remove connectors after construction. This immutability guarantee
-  * means all lookups are thread-safe without synchronisation and the set of available connectors is
-  * fixed for the lifetime of the engine instance.
+  * there is no mechanism to add or remove connectors after construction. This immutability
+  * guarantee means all lookups are thread-safe without synchronisation and the set of available
+  * connectors is fixed for the lifetime of the engine instance.
   *
-  * Use [[ConnectorRegistry.apply]] to build a registry with connectors, or [[ConnectorRegistry.empty]]
-  * to construct an empty registry in tests that need to exercise the `ConfigurationError` path.
+  * Use [[ConnectorRegistry.apply]] to build a registry with connectors, or
+  * [[ConnectorRegistry.empty]] to construct an empty registry in tests that need to exercise the
+  * `ConfigurationError` path.
   *
   * @param connectors
-  *   Complete mapping of connection types to their connector implementations, supplied by the engine
-  *   bootstrap code. An empty map is valid (see [[ConnectorRegistry.empty]]) but will always produce
-  *   a `ConfigurationError` for any lookup.
+  *   Complete mapping of connection types to their connector implementations, supplied by the
+  *   engine bootstrap code. An empty map is valid (see [[ConnectorRegistry.empty]]) but will always
+  *   produce a `ConfigurationError` for any lookup.
   */
 final class ConnectorRegistry(
     private val connectors: Map[ConnectionType, SourceConnector]
 ) {
 
-  /** Looks up the [[SourceConnector]] registered for the given [[com.criticalinfra.config.ConnectionType]].
+  /** Looks up the [[SourceConnector]] registered for the given
+    * [[com.criticalinfra.config.ConnectionType]].
     *
     * @param connectionType
     *   The connection type whose connector implementation is required, as read from
     *   `connection.connectionType` in the pipeline configuration.
     * @return
     *   `Right(connector)` containing the registered [[SourceConnector]] if an implementation has
-    *   been registered for `connectionType`, or
-    *   `Left(ConfigurationError)` with `field = "connection.connectionType"` if no connector has
-    *   been registered for the requested type. This indicates a bootstrap configuration error —
-    *   either the engine was not initialised with the required connector, or the pipeline
-    *   configuration references a connection type that this engine deployment does not support.
+    *   been registered for `connectionType`, or `Left(ConfigurationError)` with `field =
+    *   "connection.connectionType"` if no connector has been registered for the requested type.
+    *   This indicates a bootstrap configuration error — either the engine was not initialised with
+    *   the required connector, or the pipeline configuration references a connection type that this
+    *   engine deployment does not support.
     */
   def lookup(connectionType: ConnectionType): Either[ConfigurationError, SourceConnector] =
     connectors.get(connectionType) match {
@@ -91,8 +93,8 @@ object ConnectorRegistry {
     *
     * Provided for testing only. A registry built with this factory will always return
     * `Left(ConfigurationError)` for every call to `lookup`, regardless of the requested
-    * [[com.criticalinfra.config.ConnectionType]]. It must not be used in production engine bootstrap
-    * code.
+    * [[com.criticalinfra.config.ConnectionType]]. It must not be used in production engine
+    * bootstrap code.
     *
     * @return
     *   A new immutable [[ConnectorRegistry]] with an empty connector map.

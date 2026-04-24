@@ -26,8 +26,8 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
   * Implementations must adhere to the following contracts:
   *
   *   - Failures during extraction must be returned as `Left(ConnectorError)` rather than thrown.
-  *     The engine performs no try-catch around `extract`; an uncaught exception will propagate as an
-  *     unhandled failure.
+  *     The engine performs no try-catch around `extract`; an uncaught exception will propagate as
+  *     an unhandled failure.
   *   - Implementations must not close or stop the supplied `SparkSession`. The session is owned by
   *     the engine and has a lifetime that extends beyond any single extraction call.
   *   - The DataFrame returned in `Right` must not be mutated by the caller after the `extract` call
@@ -43,8 +43,8 @@ trait SourceConnector {
     *
     * @param config
     *   Fully resolved pipeline configuration for this extraction run. The `connection` section
-    *   supplies all connectivity parameters; credentials have already been resolved from the secrets
-    *   manager before this method is called.
+    *   supplies all connectivity parameters; credentials have already been resolved from the
+    *   secrets manager before this method is called.
     * @param spark
     *   Active `SparkSession` owned by the ingestion engine. Implementations must not stop or close
     *   it. The session may be shared across concurrent extraction calls.
@@ -52,8 +52,8 @@ trait SourceConnector {
     *   `Right(dataFrame)` containing the raw extracted dataset on success, or
     *   `Left(ConnectorError)` if the extraction fails for any reason — including connection errors,
     *   authentication failures, missing tables or files, and query execution errors. The
-    *   `ConnectorError.source` field must be set to `config.metadata.sourceId` so that the error can
-    *   be correlated with the originating pipeline configuration in audit logs.
+    *   `ConnectorError.source` field must be set to `config.metadata.sourceId` so that the error
+    *   can be correlated with the originating pipeline configuration in audit logs.
     */
   def extract(
       config: SourceConfig,
