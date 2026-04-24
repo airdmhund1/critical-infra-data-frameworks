@@ -36,8 +36,8 @@ final case class IngestionResult(
 
 /** Factory for [[IngestionResult]] instances.
   *
-  * Centralises `runId` generation so callers never supply their own UUID and risk
-  * reusing an existing correlation key.
+  * Centralises `runId` generation so callers never supply their own UUID and risk reusing an
+  * existing correlation key.
   */
 object IngestionResult {
 

@@ -11,8 +11,8 @@ package com.criticalinfra.engine
 /** Contract for recording source-to-Bronze lineage after each pipeline run.
   *
   * Implementations write a lineage record — correlating the source configuration, run outcome, and
-  * unique run identifier — to an external lineage catalog. This directly supports Dodd-Frank,
-  * NERC CIP, and NIST CSF audit-trail requirements.
+  * unique run identifier — to an external lineage catalog. This directly supports Dodd-Frank, NERC
+  * CIP, and NIST CSF audit-trail requirements.
   *
   * Callers should program to this trait. The concrete implementation is supplied by the engine at
   * runtime so that catalog integration can be introduced in Phase 3 without changing any call
@@ -33,8 +33,7 @@ trait LineageRecorder {
     *   The [[com.criticalinfra.config.SourceConfig]] that governed the pipeline run, providing
     *   source identity, storage destination, and audit settings.
     * @param result
-    *   The [[IngestionResult]] produced at the end of the run, carrying record counts and
-    *   duration.
+    *   The [[IngestionResult]] produced at the end of the run, carrying record counts and duration.
     */
   def record(
       runId: String,
@@ -50,8 +49,8 @@ trait LineageRecorder {
   *
   * '''Phase 1 stub.''' This object is the sole recorder available in v0.1.0. Phase 3 (v1.0.0) will
   * introduce a catalog-backed implementation that writes source-to-Bronze lineage records to a
-  * metadata catalog (e.g. Apache Atlas or OpenMetadata), satisfying Dodd-Frank, NERC CIP, and
-  * NIST CSF lineage-tracking requirements.
+  * metadata catalog (e.g. Apache Atlas or OpenMetadata), satisfying Dodd-Frank, NERC CIP, and NIST
+  * CSF lineage-tracking requirements.
   */
 object NoOpLineageRecorder extends LineageRecorder {
 

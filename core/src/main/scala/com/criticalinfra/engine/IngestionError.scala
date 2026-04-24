@@ -50,9 +50,9 @@ final case class StorageWriteError(path: String, cause: String) extends Ingestio
 
 /** Raised when the engine encounters an invalid or missing configuration value at runtime.
   *
-  * Distinct from the config-loader's `SchemaValidationError` in that this error is produced by
-  * the engine itself when it reads configuration values during pipeline execution — for example,
-  * when it encounters an unrecognised `connectionType` string or a field required by the selected
+  * Distinct from the config-loader's `SchemaValidationError` in that this error is produced by the
+  * engine itself when it reads configuration values during pipeline execution — for example, when
+  * it encounters an unrecognised `connectionType` string or a field required by the selected
   * connector is absent.
   *
   * @param field

@@ -10,9 +10,9 @@ package com.criticalinfra.engine
 
 /** Contract for data quality validation applied to a DataFrame before Bronze storage.
   *
-  * Implementations inspect incoming records against a set of quality rules and return a
-  * DataFrame containing only the records that pass validation. Failed records are expected to be
-  * routed to quarantine by the implementation — no record is ever silently dropped.
+  * Implementations inspect incoming records against a set of quality rules and return a DataFrame
+  * containing only the records that pass validation. Failed records are expected to be routed to
+  * quarantine by the implementation — no record is ever silently dropped.
   *
   * Callers should program to this trait. The concrete implementation is supplied by the engine at
   * runtime based on the pipeline configuration, enabling rules-based enforcement to be introduced
@@ -31,7 +31,8 @@ trait DataQualityValidator {
   def validate(data: org.apache.spark.sql.DataFrame): org.apache.spark.sql.DataFrame
 }
 
-/** Phase 1 stub implementation of [[DataQualityValidator]] that passes all records through unchanged.
+/** Phase 1 stub implementation of [[DataQualityValidator]] that passes all records through
+  * unchanged.
   *
   * Returns the input DataFrame without modification. No quality rules are evaluated and no records
   * are quarantined.
