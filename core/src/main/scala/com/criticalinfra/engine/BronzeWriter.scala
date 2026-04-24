@@ -20,8 +20,8 @@ import scala.util.Try
   *
   *   - Any write failure must be returned as `Left(StorageWriteError)`. Exceptions must never be
   *     allowed to propagate to the caller.
-  *   - The count of records written is returned in `Right(count)` on success, enabling the engine to
-  *     capture the exact number of records committed to storage.
+  *   - The count of records written is returned in `Right(count)` on success, enabling the engine
+  *     to capture the exact number of records committed to storage.
   *   - Implementations must not modify the supplied DataFrame before writing it.
   */
 trait BronzeWriter {
@@ -35,9 +35,9 @@ trait BronzeWriter {
     *   columns.
     * @return
     *   `Right(count)` containing the number of records written on success, or
-    *   `Left(StorageWriteError(path, cause))` if the write fails for any reason. The `path` field of
-    *   the error is set to `config.storage.path` so that operators can inspect the target location
-    *   directly.
+    *   `Left(StorageWriteError(path, cause))` if the write fails for any reason. The `path` field
+    *   of the error is set to `config.storage.path` so that operators can inspect the target
+    *   location directly.
     */
   def write(data: DataFrame, config: SourceConfig): Either[StorageWriteError, Long]
 }
@@ -46,12 +46,12 @@ trait BronzeWriter {
   *
   * Writes `data` in append mode using the Delta Lake format to the path specified in
   * `config.storage.path`. If `config.storage.partitionBy` is non-empty, the data is partitioned by
-  * those columns. The record count is computed before the write operation so that a precise count is
-  * always available even if the write subsequently fails.
+  * those columns. The record count is computed before the write operation so that a precise count
+  * is always available even if the write subsequently fails.
   *
   * The entire operation is wrapped in a `scala.util.Try` so that any exception thrown by the
-  * underlying Spark or Delta Lake write path is captured and returned as a `StorageWriteError` rather
-  * than propagated to the caller.
+  * underlying Spark or Delta Lake write path is captured and returned as a `StorageWriteError`
+  * rather than propagated to the caller.
   */
 final class DeltaBronzeWriter extends BronzeWriter {
 
@@ -67,7 +67,7 @@ final class DeltaBronzeWriter extends BronzeWriter {
   def write(data: DataFrame, config: SourceConfig): Either[StorageWriteError, Long] = {
     val path = config.storage.path
     Try {
-      val count = data.count()
+      val count  = data.count()
       val writer = data.write.format("delta").mode("append")
       val partitioned =
         if (config.storage.partitionBy.nonEmpty)
