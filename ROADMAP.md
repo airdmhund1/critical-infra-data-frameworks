@@ -17,13 +17,13 @@ Target release: v0.1.0
 - [x] Issue #2: GitHub Actions CI pipeline, OWASP security scan, repo governance
 - [x] Issue #3: Source configuration schema, JSON Schema validator, Python validator CLI, example configs
 
-### Sprint 2 (Weeks 3–4) — ACTIVE
+### Sprint 2 (Weeks 3–4) — COMPLETE (2026-04-24)
 
-- [ ] Issue #4: Configuration loader — YAML/HOCON parsing, typed case classes, secrets resolution interface
-- [ ] Issue #5: Ingestion engine — pipeline orchestrator with configurable step execution
-- [ ] Issue #6: Secrets resolver — HashiCorp Vault and AWS KMS implementations
+- [x] Issue #4: Configuration loader — YAML/HOCON parsing, typed case classes, secrets resolution interface
+- [x] Issue #5: Ingestion engine — pipeline orchestrator with configurable step execution
+- [x] Issue #6: Secrets resolver — HashiCorp Vault and AWS KMS implementations
 
-### Sprint 3 (Weeks 5–6) — PLANNED
+### Sprint 3 (Weeks 5–6) — ACTIVE
 
 - [ ] Issue #7: JDBC connector base — watermark incremental extraction, parallel reads, retry logic
 - [ ] Issue #8: Oracle JDBC connector — enterprise-grade with Oracle-specific partition strategies
@@ -92,7 +92,7 @@ Target release: v1.0.0 STABLE
 
 Phase and sprint status is updated at the end of each sprint as development progresses.
 
-**Current status:** Phase 1 active — Sprint 1 complete, Sprint 2 started.
+**Current status:** Phase 1 active — Sprint 1 complete, Sprint 2 complete, Sprint 3 started.
 
 ## How to Contribute
 
