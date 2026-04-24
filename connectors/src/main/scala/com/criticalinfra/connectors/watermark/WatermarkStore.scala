@@ -2,9 +2,9 @@ package com.criticalinfra.connectors.watermark
 
 import com.criticalinfra.engine.ConnectorError
 import io.delta.tables.DeltaTable
-import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.{Row, SparkSession}
 
 import java.sql.Timestamp
 import java.time.Instant
