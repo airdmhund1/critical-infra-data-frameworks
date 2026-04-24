@@ -24,7 +24,7 @@ ThisBuild / scalacOptions ++= Seq(
 
 // Minimum statement coverage across all modules
 ThisBuild / coverageMinimumStmtTotal := 80
-ThisBuild / coverageFailOnMinimum    := false
+ThisBuild / coverageFailOnMinimum    := true
 
 // Delta Lake 3.x is published to Maven Central
 ThisBuild / resolvers += Resolver.mavenCentral
@@ -96,6 +96,7 @@ lazy val core = project
         Dependencies.config ++
         Dependencies.logging ++
         Dependencies.configLoader ++
+        Dependencies.awsSdk ++
         Dependencies.test,
     // Fork test JVM and pin it to Java 17 so that Spark's Hadoop dependency can call
     // Subject.getSubject() (permanently removed in Java 23+).  The add-opens flags
@@ -103,7 +104,7 @@ lazy val core = project
     // Run the forked JVM from the repo root so that relative paths used by
     // ConfigLoaderSpec (e.g. "examples/configs/...") resolve correctly.
     Test / fork            := true,
-    // Test / javaHome        := Some(file("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home")),
+    Test / javaHome        := { val t17 = file("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"); if (t17.exists()) Some(t17) else None },
     Test / baseDirectory   := (ThisBuild / baseDirectory).value,
     Test / javaOptions ++= Seq(
       "--add-opens=java.base/javax.security.auth=ALL-UNNAMED",
