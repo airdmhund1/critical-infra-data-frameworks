@@ -140,6 +140,17 @@ object Dependencies {
   )
 
   // ---------------------------------------------------------------------------
+  // JDBC test utilities — in-process database for connector unit tests
+  // ---------------------------------------------------------------------------
+
+  /** H2 in-process JDBC database — used in connector unit tests to exercise JDBC logic without
+    * requiring a running external database instance.
+    */
+  val h2: ModuleID = "com.h2database" % "h2" % "2.2.224" % Test
+
+  val jdbc: Seq[ModuleID] = Seq(h2)
+
+  // ---------------------------------------------------------------------------
   // AWS SDK v2 — Secrets Manager client (production scope; not test-only)
   // ---------------------------------------------------------------------------
 

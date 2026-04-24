@@ -134,7 +134,8 @@ lazy val connectors = project
         Dependencies.delta ++
         Dependencies.config ++
         Dependencies.logging ++
-        Dependencies.test
+        Dependencies.test ++
+        Dependencies.jdbc
   )
 
 // ---------------------------------------------------------------------------
