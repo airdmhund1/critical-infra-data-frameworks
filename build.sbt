@@ -102,7 +102,7 @@ lazy val core = project
     // Run the forked JVM from the repo root so that relative paths used by
     // ConfigLoaderSpec (e.g. "examples/configs/...") resolve correctly.
     Test / fork            := true,
-    Test / javaHome        := Some(file("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home")),
+    // Test / javaHome        := Some(file("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home")),
     Test / baseDirectory   := (ThisBuild / baseDirectory).value,
     Test / javaOptions ++= Seq(
       "--add-opens=java.base/javax.security.auth=ALL-UNNAMED",
