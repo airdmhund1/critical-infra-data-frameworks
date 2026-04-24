@@ -57,16 +57,15 @@ final class IngestionEngine(
     *
     *   1. Looks up the [[SourceConnector]] for `config.connection.connectionType` in the
     *      [[ConnectorRegistry]]. Returns `Left(ConfigurationError)` if no connector is registered.
-    *   2. Calls `connector.extract(config, spark)` to obtain the raw source [[org.apache.spark.sql.DataFrame]].
-    *      Returns `Left(ConnectorError)` if extraction fails.
-    *   3. Counts the raw records (`recordsRead`) — this count reflects the number of records
-    *      received from the source, before any quality filtering.
-    *   4. Applies the [[DataQualityValidator]] to the raw DataFrame, producing a validated
-    *      DataFrame that may contain fewer records.
-    *   5. Calls `bronzeWriter.write(validated, config)` to persist the validated DataFrame.
-    *      Returns `Left(StorageWriteError)` if the write fails.
-    *   6. Creates an [[IngestionResult]] with a fresh UUID run identifier, invokes the
-    *      [[LineageRecorder]], and returns the result in `Right`.
+    *      2. Calls `connector.extract(config, spark)` to obtain the raw source
+    *      [[org.apache.spark.sql.DataFrame]]. Returns `Left(ConnectorError)` if extraction fails.
+    *      3. Counts the raw records (`recordsRead`) — this count reflects the number of records
+    *      received from the source, before any quality filtering. 4. Applies the
+    *      [[DataQualityValidator]] to the raw DataFrame, producing a validated DataFrame that may
+    *      contain fewer records. 5. Calls `bronzeWriter.write(validated, config)` to persist the
+    *      validated DataFrame. Returns `Left(StorageWriteError)` if the write fails. 6. Creates an
+    *      [[IngestionResult]] with a fresh UUID run identifier, invokes the [[LineageRecorder]],
+    *      and returns the result in `Right`.
     *
     * Any unexpected `Throwable` not handled by the collaborator contracts is caught at the
     * outermost boundary, logged at ERROR level, and returned as `Left(UnexpectedError)`. The
@@ -87,15 +86,15 @@ final class IngestionEngine(
 
     try {
       val pipeline = for {
-        connector     <- registry.lookup(config.connection.connectionType)
-        rawDf         <- connector.extract(config, spark)
-        recordsRead    = rawDf.count()
-        _              = logger.info(
-                           "Extracted {} records from source: {}",
-                           recordsRead.asInstanceOf[AnyRef],
-                           config.metadata.sourceId
-                         )
-        validated      = validator.validate(rawDf)
+        connector <- registry.lookup(config.connection.connectionType)
+        rawDf     <- connector.extract(config, spark)
+        recordsRead = rawDf.count()
+        _ = logger.info(
+          "Extracted {} records from source: {}",
+          recordsRead.asInstanceOf[AnyRef],
+          config.metadata.sourceId
+        )
+        validated = validator.validate(rawDf)
         recordsWritten <- bronzeWriter.write(validated, config)
       } yield {
         val durationMs = System.currentTimeMillis() - startMs
@@ -115,7 +114,8 @@ final class IngestionEngine(
         case Right(result) => Right(result)
         case Left(err)     => logAndReturn(err)
       }
-    } catch {
+    }
+    catch {
       case t: Throwable =>
         logger.error(
           "Unexpected error during ingestion run for source: {}",
