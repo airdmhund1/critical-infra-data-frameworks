@@ -114,7 +114,7 @@ jobs:
       # -------------------------------------------------------------------------
       - name: sbt coverageAggregate (80% gate)
         run: sbt coverageAggregate
-
+        
       # -------------------------------------------------------------------------
       # Upload coverage reports as a build artifact so they can be reviewed
       # without re-running the pipeline.
