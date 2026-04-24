@@ -126,9 +126,9 @@ The `configLoader` dependency set — `json-schema-validator` and `jackson-dataf
 
 Docker Engine 29.x rejected the Testcontainers default API version (1.32), causing `VaultSecretsResolverIntegrationSpec` to fail on container startup. The fix required adding `core/src/test/resources/docker-java.properties` with `api.version=1.41`.
 
-### 4. Agent credit cutoff mid-branch
+### 4. Work cutoff mid-branch
 
-The implementation agent was interrupted partway through Issue #5 Branch 3 (`engine-and-unit-tests_03`). At the point of interruption, `BronzeWriter.scala` had been committed but `IngestionEngine.scala` and the unit test suite had not. Recovery required inspecting the branch state, committing the partial work cleanly, and completing the remaining files on resume. The incident highlighted the need to treat each commit as a self-consistent unit, even within a branch that is not yet complete.
+The implementation was interrupted partway through Issue #5 Branch 3 (`engine-and-unit-tests_03`). At the point of interruption, `BronzeWriter.scala` had been committed but `IngestionEngine.scala` and the unit test suite had not. Recovery required inspecting the branch state, committing the partial work cleanly, and completing the remaining files on resume. The incident highlighted the need to treat each commit as a self-consistent unit, even within a branch that is not yet complete.
 
 ### 5. By-name parameter subtlety in retry logic
 
