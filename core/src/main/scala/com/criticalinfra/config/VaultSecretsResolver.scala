@@ -1,10 +1,11 @@
 package com.criticalinfra.config
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.slf4j.LoggerFactory
+
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.time.Duration
-import org.slf4j.LoggerFactory
 import scala.annotation.tailrec
 import scala.util.Try
 
