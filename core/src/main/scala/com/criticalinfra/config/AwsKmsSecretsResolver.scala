@@ -23,7 +23,8 @@ import scala.util.Try
 /** Minimal abstraction over the AWS Secrets Manager API, designed for injection in tests.
   *
   * Implementations return `Right(secretString)` on success and `Left(errorMessage)` on any failure.
-  * The returned `Right` value contains the raw secret string and must never be logged by the caller.
+  * The returned `Right` value contains the raw secret string and must never be logged by the
+  * caller.
   */
 trait AwsSecretsClient {
 
@@ -41,10 +42,9 @@ trait AwsSecretsClient {
   * `SecretsManagerClient`.
   *
   * Credentials are resolved exclusively via `DefaultCredentialsProvider`, which checks, in order:
-  *   1. Environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`)
-  *   2. Java system properties (`aws.accessKeyId` / `aws.secretAccessKey`)
-  *   3. ECS container credentials (task role)
-  *   4. EC2 instance metadata (instance profile / IMDSv2)
+  *   1. Environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`) 2. Java system
+  *      properties (`aws.accessKeyId` / `aws.secretAccessKey`) 3. ECS container credentials (task
+  *      role) 4. EC2 instance metadata (instance profile / IMDSv2)
   *
   * No credentials are ever accepted as constructor arguments. This class is intentionally free of
   * any credential parameters so that it is safe to instantiate from configuration without risk of
@@ -54,8 +54,8 @@ trait AwsSecretsClient {
   * pulling the full Netty stack (10MB+) onto the classpath.
   *
   * @param region
-  *   AWS region override. When `None`, the SDK resolves the region from the environment
-  *   (e.g. `AWS_DEFAULT_REGION` or EC2 instance metadata).
+  *   AWS region override. When `None`, the SDK resolves the region from the environment (e.g.
+  *   `AWS_DEFAULT_REGION` or EC2 instance metadata).
   */
 final class DefaultAwsSecretsClient(region: Option[String] = None) extends AwsSecretsClient {
 
@@ -66,10 +66,11 @@ final class DefaultAwsSecretsClient(region: Option[String] = None) extends AwsSe
   import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest
 
   private val client: SecretsManagerClient = {
-    val builder     = SecretsManagerClient.builder()
+    val builder = SecretsManagerClient
+      .builder()
       .credentialsProvider(DefaultCredentialsProvider.create())
       .httpClientBuilder(UrlConnectionHttpClient.builder())
-    val configured  = region.fold(builder)(r => builder.region(Region.of(r)))
+    val configured = region.fold(builder)(r => builder.region(Region.of(r)))
     configured.build()
   }
 
@@ -85,19 +86,18 @@ final class DefaultAwsSecretsClient(region: Option[String] = None) extends AwsSe
     *   `Right(secretString)` on success, `Left(exceptionMessage)` on any failure.
     */
   def getSecretValue(secretId: String): Either[String, String] = {
-    val request = GetSecretValueRequest.builder()
+    val request = GetSecretValueRequest
+      .builder()
       .secretId(secretId)
       .build()
-    Try(client.getSecretValue(request).secretString())
-      .toEither
-      .left.map(_.getMessage)
+    Try(client.getSecretValue(request).secretString()).toEither.left.map(_.getMessage)
   }
 }
 
 /** Companion object for [[AwsSecretsClient]] — factory methods for common configurations.
   *
-  * Use [[default]] when the AWS region can be resolved from the environment.
-  * Use [[withRegion]] to explicitly specify the region (useful in multi-region deployments).
+  * Use [[default]] when the AWS region can be resolved from the environment. Use [[withRegion]] to
+  * explicitly specify the region (useful in multi-region deployments).
   */
 object AwsSecretsClient {
 
@@ -131,10 +131,9 @@ object AwsSecretsClient {
   * ==Credential resolution==
   * Credentials are resolved via `DefaultCredentialsProvider` in the following order (no credentials
   * are ever accepted as constructor arguments):
-  *   1. Environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`)
-  *   2. Java system properties (`aws.accessKeyId` / `aws.secretAccessKey`)
-  *   3. ECS container credentials (task role)
-  *   4. EC2 instance metadata (instance profile / IMDSv2)
+  *   1. Environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`) 2. Java system
+  *      properties (`aws.accessKeyId` / `aws.secretAccessKey`) 3. ECS container credentials (task
+  *      role) 4. EC2 instance metadata (instance profile / IMDSv2)
   *
   * ==Retry behaviour==
   * Transient failures are retried up to `maxRetries` times with exponential back-off starting at
@@ -176,9 +175,9 @@ final class AwsKmsSecretsResolver(
     *
     * Steps:
     *   1. Validates that `ref` starts with `"aws-secrets://"`. Returns `Left` immediately if not.
-    *   2. Strips the scheme prefix to obtain the AWS secret name or ARN.
-    *   3. Calls AWS Secrets Manager via `awsClient.getSecretValue`, with exponential-backoff retry.
-    *   4. Returns `Right(secretString)` on success.
+    *      2. Strips the scheme prefix to obtain the AWS secret name or ARN. 3. Calls AWS Secrets
+    *      Manager via `awsClient.getSecretValue`, with exponential-backoff retry. 4. Returns
+    *      `Right(secretString)` on success.
     *
     * The resolved secret value is never logged at any step.
     *
@@ -214,8 +213,8 @@ final class AwsKmsSecretsResolver(
     *
     * On `Left` with retries remaining, logs a WARN with the `ref` and remaining retry count (never
     * the error message, which may contain secret content), sleeps `delayMs` milliseconds via
-    * `retryDelayFn`, then recurses with `retriesLeft - 1` and `delayMs * 2`. Returns immediately
-    * on `Right` or when `retriesLeft == 0`.
+    * `retryDelayFn`, then recurses with `retriesLeft - 1` and `delayMs * 2`. Returns immediately on
+    * `Right` or when `retriesLeft == 0`.
     *
     * The method is `@tailrec`-eligible because the recursive call is always in the tail position.
     *
