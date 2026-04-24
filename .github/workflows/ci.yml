@@ -104,6 +104,7 @@ jobs:
       - name: sbt coverageReport
         run: sbt coverageReport
         continue-on-error: ${{ github.base_ref != 'feature/phase-1-foundation' && github.ref != 'refs/heads/feature/phase-1-foundation' }}
+
       # -------------------------------------------------------------------------
       # 9. Aggregate coverage gate
       #    Merges per-module data and asserts aggregated statement coverage >= 80%.
