@@ -21,44 +21,40 @@ import scala.util.Try
 // VaultAuthMethod — authentication strategy sealed hierarchy
 // -----------------------------------------------------------------------------
 
-/** Sealed hierarchy representing the authentication method used to obtain a
-  * Vault client token.
+/** Sealed hierarchy representing the authentication method used to obtain a Vault client token.
   *
   * Two concrete subtypes are provided:
   *
   *   - [[TokenAuth]] — a pre-issued Vault token is supplied directly.
-  *   - [[AppRoleAuth]] — the resolver exchanges a role ID and secret ID for a
-  *     short-lived client token via the AppRole login endpoint.
+  *   - [[AppRoleAuth]] — the resolver exchanges a role ID and secret ID for a short-lived client
+  *     token via the AppRole login endpoint.
   *
-  * The choice of auth method is made at construction time and does not change
-  * for the lifetime of the resolver instance.
+  * The choice of auth method is made at construction time and does not change for the lifetime of
+  * the resolver instance.
   */
 sealed trait VaultAuthMethod
 
 /** Authentication using a pre-issued Vault token.
   *
-  * The token is passed directly as the `X-Vault-Token` header on every secret
-  * GET request. No additional login round-trip is performed.
+  * The token is passed directly as the `X-Vault-Token` header on every secret GET request. No
+  * additional login round-trip is performed.
   *
   * @param token
-  *   A valid Vault client token (e.g. `"s.XXXXXXXXXXXXXXXXXXXX"`). This value
-  *   is treated as a secret and is never written to any log output.
+  *   A valid Vault client token (e.g. `"s.XXXXXXXXXXXXXXXXXXXX"`). This value is treated as a
+  *   secret and is never written to any log output.
   */
 final case class TokenAuth(token: String) extends VaultAuthMethod
 
 /** Authentication using Vault AppRole credentials.
   *
-  * On the first call to [[VaultSecretsResolver.resolve]], the resolver posts
-  * the `roleId` / `secretId` pair to the AppRole login endpoint and exchanges
-  * it for a short-lived `client_token`. That token is then used for the
-  * subsequent secret GET request.
+  * On the first call to [[VaultSecretsResolver.resolve]], the resolver posts the `roleId` /
+  * `secretId` pair to the AppRole login endpoint and exchanges it for a short-lived `client_token`.
+  * That token is then used for the subsequent secret GET request.
   *
-  * Both `roleId` and `secretId` are treated as secrets and are never written
-  * to any log output.
+  * Both `roleId` and `secretId` are treated as secrets and are never written to any log output.
   *
   * @param roleId
-  *   The AppRole role ID (not secret — but still not logged to avoid leaking
-  *   role topology).
+  *   The AppRole role ID (not secret — but still not logged to avoid leaking role topology).
   * @param secretId
   *   The AppRole secret ID. Treated as a credential; never logged.
   */
@@ -68,13 +64,11 @@ final case class AppRoleAuth(roleId: String, secretId: String) extends VaultAuth
 // VaultHttpClient — injectable HTTP abstraction for testability
 // -----------------------------------------------------------------------------
 
-/** Minimal HTTP abstraction over Vault's REST API, designed for injection in
-  * tests.
+/** Minimal HTTP abstraction over Vault's REST API, designed for injection in tests.
   *
-  * Both methods return `Right(responseBody)` on HTTP 2xx and
-  * `Left(errorMessage)` on any non-2xx status code or network-level failure.
-  * The response body and error messages never contain secret material —
-  * callers must ensure they do not log `Right` values.
+  * Both methods return `Right(responseBody)` on HTTP 2xx and `Left(errorMessage)` on any non-2xx
+  * status code or network-level failure. The response body and error messages never contain secret
+  * material — callers must ensure they do not log `Right` values.
   */
 trait VaultHttpClient {
 
@@ -83,8 +77,8 @@ trait VaultHttpClient {
     * @param url
     *   Fully-qualified URL (e.g. `"http://vault:8200/v1/secret/data/my-path"`).
     * @param token
-    *   Vault client token sent as the `X-Vault-Token` request header. Never
-    *   logged by this method or its implementations.
+    *   Vault client token sent as the `X-Vault-Token` request header. Never logged by this method
+    *   or its implementations.
     * @return
     *   `Right(body)` on HTTP 2xx, `Left(message)` otherwise.
     */
@@ -92,8 +86,8 @@ trait VaultHttpClient {
 
   /** Performs an HTTP POST request with a JSON body.
     *
-    * Used exclusively for the AppRole login endpoint. The body will contain
-    * `role_id` / `secret_id` values and must never be logged.
+    * Used exclusively for the AppRole login endpoint. The body will contain `role_id` / `secret_id`
+    * values and must never be logged.
     *
     * @param url
     *   Fully-qualified URL (e.g. `"http://vault:8200/v1/auth/approle/login"`).
@@ -107,9 +101,8 @@ trait VaultHttpClient {
 
 /** Production HTTP client backed by [[java.net.http.HttpClient]] (Java 11+).
   *
-  * Uses a 10-second connect timeout and a 10-second request timeout. TLS
-  * verification uses the JVM's default trust store; no custom trust anchors are
-  * configured here.
+  * Uses a 10-second connect timeout and a 10-second request timeout. TLS verification uses the
+  * JVM's default trust store; no custom trust anchors are configured here.
   */
 final class JavaVaultHttpClient extends VaultHttpClient {
 
@@ -119,12 +112,14 @@ final class JavaVaultHttpClient extends VaultHttpClient {
       .connectTimeout(Duration.ofSeconds(10))
       .build()
 
-  /** Sends a GET request to `url` with the `X-Vault-Token` header set to
-    * `token`.
+  /** Sends a GET request to `url` with the `X-Vault-Token` header set to `token`.
     *
-    * @param url   Target URL.
-    * @param token Vault token; never logged.
-    * @return `Right(body)` on 2xx, `Left(message)` on non-2xx or IO failure.
+    * @param url
+    *   Target URL.
+    * @param token
+    *   Vault token; never logged.
+    * @return
+    *   `Right(body)` on 2xx, `Left(message)` on non-2xx or IO failure.
     */
   def get(url: String, token: String): Either[String, String] =
     Try {
@@ -143,9 +138,12 @@ final class JavaVaultHttpClient extends VaultHttpClient {
 
   /** Sends a POST request to `url` with the given JSON body.
     *
-    * @param url      Target URL.
-    * @param jsonBody JSON payload; treated as secret material, never logged.
-    * @return `Right(body)` on 2xx, `Left(message)` on non-2xx or IO failure.
+    * @param url
+    *   Target URL.
+    * @param jsonBody
+    *   JSON payload; treated as secret material, never logged.
+    * @return
+    *   `Right(body)` on 2xx, `Left(message)` on non-2xx or IO failure.
     */
   def post(url: String, jsonBody: String): Either[String, String] =
     Try {
@@ -166,8 +164,7 @@ final class JavaVaultHttpClient extends VaultHttpClient {
 /** Companion object for [[VaultHttpClient]]. */
 object VaultHttpClient {
 
-  /** Returns the default production HTTP client backed by
-    * [[JavaVaultHttpClient]].
+  /** Returns the default production HTTP client backed by [[JavaVaultHttpClient]].
     */
   def default: VaultHttpClient = new JavaVaultHttpClient
 }
@@ -176,8 +173,8 @@ object VaultHttpClient {
 // VaultSecretsResolver — main implementation
 // -----------------------------------------------------------------------------
 
-/** Production implementation of [[SecretsResolver]] that resolves
-  * `vault://`-scheme references against a HashiCorp Vault KV v2 endpoint.
+/** Production implementation of [[SecretsResolver]] that resolves `vault://`-scheme references
+  * against a HashiCorp Vault KV v2 endpoint.
   *
   * ==Usage==
   * {{{
@@ -190,39 +187,34 @@ object VaultHttpClient {
   * }}}
   *
   * ==Auth methods==
-  * Pass [[TokenAuth]] when a long-lived token is available in the environment.
-  * Pass [[AppRoleAuth]] for short-lived, role-scoped tokens in automated
-  * deployments (Kubernetes, CI/CD).
+  * Pass [[TokenAuth]] when a long-lived token is available in the environment. Pass [[AppRoleAuth]]
+  * for short-lived, role-scoped tokens in automated deployments (Kubernetes, CI/CD).
   *
   * ==Retry behaviour==
-  * Transient failures (non-2xx responses, network errors) are retried up to
-  * `maxRetries` times with exponential back-off starting at 500 ms. The delay
-  * function is injectable so that unit tests can set it to a no-op.
+  * Transient failures (non-2xx responses, network errors) are retried up to `maxRetries` times with
+  * exponential back-off starting at 500 ms. The delay function is injectable so that unit tests can
+  * set it to a no-op.
   *
   * ==Log safety==
-  * The resolved secret value, Vault tokens, and AppRole credentials are
-  * '''never''' written to any log output at any level. Only the `ref` path and
-  * sanitised error messages are logged.
+  * The resolved secret value, Vault tokens, and AppRole credentials are '''never''' written to any
+  * log output at any level. Only the `ref` path and sanitised error messages are logged.
   *
   * ==Thread safety==
-  * Instances are safe for concurrent use from multiple Spark tasks. The
-  * underlying `JavaVaultHttpClient` builds a new `HttpClient` per instance but
-  * each call is stateless.
+  * Instances are safe for concurrent use from multiple Spark tasks. The underlying
+  * `JavaVaultHttpClient` builds a new `HttpClient` per instance but each call is stateless.
   *
   * @param vaultAddress
-  *   Base URL of the Vault server, without trailing slash
-  *   (e.g. `"https://vault.internal:8200"`).
+  *   Base URL of the Vault server, without trailing slash (e.g. `"https://vault.internal:8200"`).
   * @param authMethod
   *   Authentication strategy — either [[TokenAuth]] or [[AppRoleAuth]].
   * @param maxRetries
   *   Maximum number of retry attempts after the initial failure. Default: 3.
   * @param httpClient
-  *   HTTP client to use. Defaults to [[VaultHttpClient.default]]. Override in
-  *   tests to inject a stub.
+  *   HTTP client to use. Defaults to [[VaultHttpClient.default]]. Override in tests to inject a
+  *   stub.
   * @param retryDelayFn
-  *   Function called with the delay in milliseconds before each retry.
-  *   Defaults to `Thread.sleep`. Override in tests with `_ => ()` for instant
-  *   retries.
+  *   Function called with the delay in milliseconds before each retry. Defaults to `Thread.sleep`.
+  *   Override in tests with `_ => ()` for instant retries.
   */
 final class VaultSecretsResolver(
     vaultAddress: String,
@@ -245,21 +237,19 @@ final class VaultSecretsResolver(
   /** Resolves a `vault://`-scheme reference to its plaintext secret value.
     *
     * Steps:
-    *   1. Validates that `ref` starts with `"vault://"`.
-    *   2. Strips the scheme prefix to obtain the KV v2 path.
-    *   3. Obtains a Vault client token via the configured auth method.
-    *   4. Issues a GET to `{vaultAddress}/v1/{path}` with the token.
-    *   5. Parses `data.data.value` from the KV v2 JSON response.
+    *   1. Validates that `ref` starts with `"vault://"`. 2. Strips the scheme prefix to obtain the
+    *      KV v2 path. 3. Obtains a Vault client token via the configured auth method. 4. Issues a
+    *      GET to `{vaultAddress}/v1/{path}` with the token. 5. Parses `data.data.value` from the KV
+    *      v2 JSON response.
     *
-    * All HTTP calls (AppRole login and secret GET) are wrapped in retry logic
-    * with exponential back-off.
+    * All HTTP calls (AppRole login and secret GET) are wrapped in retry logic with exponential
+    * back-off.
     *
     * @param ref
-    *   A `vault://`-prefixed path, e.g.
-    *   `"vault://secret/data/oracle-tradedb-prod"`.
+    *   A `vault://`-prefixed path, e.g. `"vault://secret/data/oracle-tradedb-prod"`.
     * @return
-    *   `Right(secret)` on success, `Left(SecretsResolutionError)` on any
-    *   failure. The resolved secret value is never logged.
+    *   `Right(secret)` on success, `Left(SecretsResolutionError)` on any failure. The resolved
+    *   secret value is never logged.
     */
   def resolve(ref: String): Either[SecretsResolutionError, String] = {
     if (!ref.startsWith(VaultScheme)) {
@@ -283,11 +273,13 @@ final class VaultSecretsResolver(
 
   /** Obtains a Vault client token appropriate for the configured auth method.
     *
-    * For [[TokenAuth]], returns the token directly (no network call). For
-    * [[AppRoleAuth]], performs an AppRole login with retry.
+    * For [[TokenAuth]], returns the token directly (no network call). For [[AppRoleAuth]], performs
+    * an AppRole login with retry.
     *
-    * @param ref The original secrets reference, used only in error messages.
-    * @return `Right(token)` or `Left(SecretsResolutionError)`.
+    * @param ref
+    *   The original secrets reference, used only in error messages.
+    * @return
+    *   `Right(token)` or `Left(SecretsResolutionError)`.
     */
   private def obtainToken(ref: String): Either[SecretsResolutionError, String] =
     authMethod match {
@@ -302,10 +294,14 @@ final class VaultSecretsResolver(
     *
     * Never logs `roleId`, `secretId`, or the returned `client_token`.
     *
-    * @param ref      Original ref for error-message context.
-    * @param roleId   AppRole role ID.
-    * @param secretId AppRole secret ID.
-    * @return `Right(clientToken)` or `Left(SecretsResolutionError)`.
+    * @param ref
+    *   Original ref for error-message context.
+    * @param roleId
+    *   AppRole role ID.
+    * @param secretId
+    *   AppRole secret ID.
+    * @return
+    *   `Right(clientToken)` or `Left(SecretsResolutionError)`.
     */
   private def performAppRoleLogin(
       ref: String,
@@ -324,11 +320,18 @@ final class VaultSecretsResolver(
         Try {
           val token = mapper.readTree(body).path("auth").path("client_token").asText(null)
           if (token == null)
-            Left(SecretsResolutionError(ref, "AppRole login failed: client_token not found in response"))
+            Left(
+              SecretsResolutionError(
+                ref,
+                "AppRole login failed: client_token not found in response"
+              )
+            )
           else
             Right(token)
         }.toEither.left
-          .map(e => SecretsResolutionError(ref, s"AppRole login failed: JSON parse error: ${e.getMessage}"))
+          .map(e =>
+            SecretsResolutionError(ref, s"AppRole login failed: JSON parse error: ${e.getMessage}")
+          )
           .flatten
     }
   }
@@ -341,10 +344,14 @@ final class VaultSecretsResolver(
     *
     * Never logs the resolved secret value.
     *
-    * @param ref       Original ref; logged on failure.
-    * @param vaultPath The Vault path (scheme stripped).
-    * @param token     Vault client token; never logged.
-    * @return `Right(secretValue)` or `Left(SecretsResolutionError)`.
+    * @param ref
+    *   Original ref; logged on failure.
+    * @param vaultPath
+    *   The Vault path (scheme stripped).
+    * @param token
+    *   Vault client token; never logged.
+    * @return
+    *   `Right(secretValue)` or `Left(SecretsResolutionError)`.
     */
   private def fetchSecret(
       ref: String,
@@ -365,7 +372,8 @@ final class VaultSecretsResolver(
           if (value == null) {
             logger.warn("Key 'value' not found in Vault response for ref {}", ref)
             Left(SecretsResolutionError(ref, "key 'value' not found in Vault response"))
-          } else {
+          }
+          else {
             // NOTE: value is NOT logged — log-safety rule
             logger.debug("Successfully resolved secret for ref {}", ref)
             Right(value)
@@ -382,19 +390,23 @@ final class VaultSecretsResolver(
 
   /** Retries `attempt` up to `retriesLeft` times with exponential back-off.
     *
-    * On `Left` and `retriesLeft > 0`, sleeps `delayMs` milliseconds (via
-    * `retryDelayFn`) then recurses with `retriesLeft - 1` and `delayMs * 2`.
-    * Returns immediately on `Right` or when `retriesLeft == 0`.
+    * On `Left` and `retriesLeft > 0`, sleeps `delayMs` milliseconds (via `retryDelayFn`) then
+    * recurses with `retriesLeft - 1` and `delayMs * 2`. Returns immediately on `Right` or when
+    * `retriesLeft == 0`.
     *
-    * The method is `@tailrec`-eligible because the only recursive call is in
-    * the tail position of each branch.
+    * The method is `@tailrec`-eligible because the only recursive call is in the tail position of
+    * each branch.
     *
-    * @param ref         Original ref, used only for logging.
-    * @param attempt     By-name expression that performs one attempt.
-    * @param retriesLeft Remaining retry budget (0 means no further retries).
-    * @param delayMs     Current back-off delay in milliseconds.
-    * @return The first `Right` result, or the last `Left` when retries are
-    *         exhausted.
+    * @param ref
+    *   Original ref, used only for logging.
+    * @param attempt
+    *   By-name expression that performs one attempt.
+    * @param retriesLeft
+    *   Remaining retry budget (0 means no further retries).
+    * @param delayMs
+    *   Current back-off delay in milliseconds.
+    * @return
+    *   The first `Right` result, or the last `Left` when retries are exhausted.
     */
   @tailrec
   private def withRetry[A](
