@@ -103,7 +103,8 @@ jobs:
       # -------------------------------------------------------------------------
       - name: sbt coverageReport
         run: sbt coverageReport
-        continue-on-error: ${{ github.base_ref != 'feature/phase-1-foundation' && github.ref != 'refs/heads/feature/phase-1-foundation' }}
+        env:
+          ENFORCE_COVERAGE: ${{ github.base_ref == 'feature/phase-1-foundation' && 'true' || 'false' }}
 
       # -------------------------------------------------------------------------
       # 9. Aggregate coverage gate
@@ -115,8 +116,8 @@ jobs:
       # -------------------------------------------------------------------------
       - name: sbt coverageAggregate (80% gate)
         run: sbt coverageAggregate
-        continue-on-error: ${{ github.base_ref != 'feature/phase-1-foundation' && github.ref != 'refs/heads/feature/phase-1-foundation' }}
-
+        env:
+          ENFORCE_COVERAGE: ${{ github.base_ref == 'feature/phase-1-foundation' && 'true' || 'false' }}
       # -------------------------------------------------------------------------
       # Upload coverage reports as a build artifact so they can be reviewed
       # without re-running the pipeline.
