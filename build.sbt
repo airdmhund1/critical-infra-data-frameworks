@@ -55,7 +55,16 @@ lazy val assemblyMergeStrategySettings = Seq(
 lazy val commonSettings = Seq(
   // scalafix needs the semanticdb compiler plugin
   semanticdbEnabled := true,
-  semanticdbVersion := scalafixSemanticdb.revision
+  semanticdbVersion := scalafixSemanticdb.revision,
+  // Spark 3.5.x bundles jackson-module-scala 2.15.x, which requires
+  // jackson-databind >= 2.15.0 and < 2.16.0.  The configLoader dependencies
+  // (json-schema-validator, jackson-dataformat-yaml) pull in 2.17.x, which
+  // breaks RDDOperationScope static initialisation during Spark tests.
+  // Pin to 2.15.4 so both consumers are satisfied.
+  dependencyOverrides += "com.fasterxml.jackson.core" % "jackson-databind" % "2.15.4",
+  dependencyOverrides += "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.15.4",
+  dependencyOverrides += "com.fasterxml.jackson.core" % "jackson-annotations" % "2.15.4",
+  dependencyOverrides += "com.fasterxml.jackson.core" % "jackson-core" % "2.15.4"
 )
 
 // ---------------------------------------------------------------------------
@@ -87,6 +96,20 @@ lazy val core = project
         Dependencies.logging ++
         Dependencies.configLoader ++
         Dependencies.test,
+    // Fork test JVM and pin it to Java 17 so that Spark's Hadoop dependency can call
+    // Subject.getSubject() (permanently removed in Java 23+).  The add-opens flags
+    // suppress module-encapsulation warnings on internal Hadoop/Netty reflection.
+    // Run the forked JVM from the repo root so that relative paths used by
+    // ConfigLoaderSpec (e.g. "examples/configs/...") resolve correctly.
+    Test / fork            := true,
+    // Test / javaHome        := Some(file("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home")),
+    Test / baseDirectory   := (ThisBuild / baseDirectory).value,
+    Test / javaOptions ++= Seq(
+      "--add-opens=java.base/javax.security.auth=ALL-UNNAMED",
+      "--add-opens=java.base/java.lang=ALL-UNNAMED",
+      "--add-opens=java.base/java.nio=ALL-UNNAMED",
+      "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+    ),
     // Fat JAR: exclude Scala library — already present on the Spark cluster classpath
     assembly / assemblyOption :=
       (assembly / assemblyOption).value.withIncludeScala(false),
