@@ -50,7 +50,16 @@ object Dependencies {
   val deltaSparkCore: ModuleID =
     "io.delta" %% "delta-spark" % Versions.delta % Provided
 
+  /** Delta Lake on the test classpath — required for integration tests that write real Delta tables.
+    * This is intentionally separate from `deltaSparkCore` (which is `% Provided`) so that the
+    * production dependency scope is never changed.
+    */
+  val deltaTest: ModuleID =
+    "io.delta" %% "delta-spark" % Versions.delta % Test
+
   val delta: Seq[ModuleID] = Seq(deltaSparkCore)
+
+  val deltaForTest: Seq[ModuleID] = Seq(deltaTest)
 
   // ---------------------------------------------------------------------------
   // Configuration

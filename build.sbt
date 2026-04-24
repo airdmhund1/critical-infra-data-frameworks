@@ -92,6 +92,7 @@ lazy val core = project
     libraryDependencies ++=
       Dependencies.spark ++
         Dependencies.delta ++
+        Dependencies.deltaForTest ++
         Dependencies.config ++
         Dependencies.logging ++
         Dependencies.configLoader ++
