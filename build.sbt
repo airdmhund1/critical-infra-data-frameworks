@@ -96,6 +96,7 @@ lazy val core = project
         Dependencies.config ++
         Dependencies.logging ++
         Dependencies.configLoader ++
+        Dependencies.awsSdk ++
         Dependencies.test,
     // Fork test JVM and pin it to Java 17 so that Spark's Hadoop dependency can call
     // Subject.getSubject() (permanently removed in Java 23+).  The add-opens flags
