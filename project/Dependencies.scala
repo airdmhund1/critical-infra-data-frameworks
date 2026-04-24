@@ -29,6 +29,7 @@ object Dependencies {
     val scalaCheck     = "1.18.0"
     // testcontainers-scala tracks Testcontainers-Java; 0.41.x targets TC-Java 1.19.x
     val testcontainers = "0.41.4"
+    val awsSdk         = "2.25.6"
   }
 
   // ---------------------------------------------------------------------------
@@ -144,14 +145,14 @@ object Dependencies {
 
   /** AWS SDK v2 Secrets Manager — resolves secrets from AWS Secrets Manager at runtime. */
   val awsSecretsManager: ModuleID =
-    "software.amazon.awssdk" % "secretsmanager" % "2.25.6"
+    "software.amazon.awssdk" % "secretsmanager" % Versions.awsSdk
 
   /** URL Connection HTTP client for AWS SDK v2 — lightweight alternative to Netty, avoids
     * adding the full Netty stack to the classpath. Required to prevent the default async
     * HTTP client from pulling in netty-all at 10MB+.
     */
   val awsUrlConnectionClient: ModuleID =
-    "software.amazon.awssdk" % "url-connection-client" % "2.25.6"
+    "software.amazon.awssdk" % "url-connection-client" % Versions.awsSdk
 
   val awsSdk: Seq[ModuleID] = Seq(awsSecretsManager, awsUrlConnectionClient)
 }
