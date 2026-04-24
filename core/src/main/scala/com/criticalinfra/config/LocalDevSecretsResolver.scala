@@ -19,8 +19,8 @@ import scala.annotation.tailrec
   * references from JVM system properties.
   *
   * ==Purpose==
-  * This resolver is intended exclusively for local development workstations and CI pipelines where a
-  * real secrets manager (HashiCorp Vault, AWS KMS) is not available. Secrets are passed to the
+  * This resolver is intended exclusively for local development workstations and CI pipelines where
+  * a real secrets manager (HashiCorp Vault, AWS KMS) is not available. Secrets are passed to the
   * process as JVM system properties (e.g. `-Ddb.password=dev-secret`) and looked up by key.
   *
   * ==Production guard==
@@ -85,21 +85,20 @@ final class LocalDevSecretsResolver(
     *
     * Steps (executed in this order):
     *   1. '''Production guard''' — checks `CIDF_ENVIRONMENT` via `envReader`. If the value is
-    *      `"production"` (case-insensitive), throws [[IllegalStateException]] immediately, before any
-    *      other logic. This is a fail-fast safety net for misconfigured deployments.
-    *   2. '''Scheme validation''' — if `ref` does not start with `"local://"`, logs WARN and returns
-    *      `Left(SecretsResolutionError)`.
-    *   3. '''Key extraction''' — strips the `"local://"` prefix to obtain the system property key
-    *      (e.g. `"local://db.password"` → `"db.password"`).
-    *   4. '''Resolution with retry''' — looks up the key via `propReader`, retrying up to
-    *      `maxRetries` times with exponential back-off on `None`.
+    *      `"production"` (case-insensitive), throws [[IllegalStateException]] immediately, before
+    *      any other logic. This is a fail-fast safety net for misconfigured deployments. 2.
+    *      '''Scheme validation''' — if `ref` does not start with `"local://"`, logs WARN and
+    *      returns `Left(SecretsResolutionError)`. 3. '''Key extraction''' — strips the `"local://"`
+    *      prefix to obtain the system property key (e.g. `"local://db.password"` →
+    *      `"db.password"`). 4. '''Resolution with retry''' — looks up the key via `propReader`,
+    *      retrying up to `maxRetries` times with exponential back-off on `None`.
     *
     * @param ref
     *   A `local://`-prefixed system property key, e.g. `"local://db.password"`.
     * @return
     *   `Right(secret)` when the system property exists, or `Left(SecretsResolutionError)` if the
-    *   scheme is wrong or the property cannot be found after all retries. The resolved value is never
-    *   logged.
+    *   scheme is wrong or the property cannot be found after all retries. The resolved value is
+    *   never logged.
     * @throws IllegalStateException
     *   if `CIDF_ENVIRONMENT` equals `"production"` (case-insensitive). This exception is
     *   intentional: a misconfigured production deployment is a programming error, not a recoverable
@@ -146,8 +145,8 @@ final class LocalDevSecretsResolver(
   /** Retries `attempt` up to `retriesLeft` times with exponential back-off.
     *
     * On `Left` and `retriesLeft > 0`, logs a WARN with the `ref` and remaining retry count, sleeps
-    * `delayMs` milliseconds via `retryDelayFn`, then recurses with `retriesLeft - 1` and
-    * `delayMs * 2`. Returns immediately on `Right` or when `retriesLeft == 0`.
+    * `delayMs` milliseconds via `retryDelayFn`, then recurses with `retriesLeft - 1` and `delayMs *
+    * 2`. Returns immediately on `Right` or when `retriesLeft == 0`.
     *
     * The method is `@tailrec`-eligible because the recursive call is always in the tail position.
     *
