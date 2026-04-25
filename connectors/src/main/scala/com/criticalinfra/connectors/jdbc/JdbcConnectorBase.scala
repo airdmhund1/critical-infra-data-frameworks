@@ -98,6 +98,18 @@ abstract class JdbcConnectorBase(
   /** Inclusive upper bound on [[partitionColumn]] for parallel partitioning. */
   protected def partitionUpperBound(config: SourceConfig): Option[Long] = None
 
+  /** Driver-specific JDBC options merged into the options map after the base options.
+    *
+    * Subclasses override this to inject driver-specific connection properties such as Oracle Wallet
+    * location or SSL certificate paths. The default implementation returns an empty map.
+    *
+    * @param config
+    *   Pipeline configuration; may be inspected to select options conditionally.
+    * @return
+    *   Map of extra JDBC option key-value pairs to merge into the final options map.
+    */
+  protected def extraJdbcOptions(config: SourceConfig): Map[String, String] = Map.empty
+
   // ---------------------------------------------------------------------------
   // SourceConnector implementation
   // ---------------------------------------------------------------------------
@@ -259,7 +271,7 @@ abstract class JdbcConnectorBase(
       "fetchsize"    -> config.ingestion.batchSize.toString,
       "queryTimeout" -> config.ingestion.timeout.toString
     )
-    base ++ partitionOpts(config)
+    base ++ partitionOpts(config) ++ extraJdbcOptions(config)
   }
 
   /** Returns parallel-read partition options when all three partition fields are defined. Returns
