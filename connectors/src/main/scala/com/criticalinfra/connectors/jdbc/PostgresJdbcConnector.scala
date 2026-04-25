@@ -24,12 +24,12 @@ import com.criticalinfra.engine.ConnectorError
   *
   * ==SSL/TLS modes==
   *
-  * The `sslmode` JDBC property is always injected into the Spark options map via [[extraJdbcOptions]].
-  * Choose the mode that matches your security posture:
+  * The `sslmode` JDBC property is always injected into the Spark options map via
+  * [[extraJdbcOptions]]. Choose the mode that matches your security posture:
   *
-  *   - '''`Disable`''' — no encryption; data is transmitted in plaintext. Use only on trusted private
-  *     networks where the threat model does not require transport-level security. Never appropriate for
-  *     regulated environments.
+  *   - '''`Disable`''' — no encryption; data is transmitted in plaintext. Use only on trusted
+  *     private networks where the threat model does not require transport-level security. Never
+  *     appropriate for regulated environments.
   *   - '''`Require`''' (default) — an encrypted TLS channel is established, but the server's
   *     certificate is not validated against a CA. Protects against passive eavesdropping; does not
   *     protect against an active man-in-the-middle attacker who can intercept the TCP connection.
@@ -38,16 +38,17 @@ import com.criticalinfra.engine.ConnectorError
   *     certificates signed by untrusted CAs. Requires the CA cert path to be supplied (see Known
   *     limitations below).
   *   - '''`VerifyFull`''' — encrypted + CA validated + the server certificate's Common Name (CN) or
-  *     Subject Alternative Name (SAN) is verified against the hostname in the JDBC URL. Provides the
-  *     strongest guarantee and is recommended for all production deployments in regulated sectors.
+  *     Subject Alternative Name (SAN) is verified against the hostname in the JDBC URL. Provides
+  *     the strongest guarantee and is recommended for all production deployments in regulated
+  *     sectors.
   *
   * ==JSONB column handling==
   *
   * The PostgreSQL JDBC driver maps `JSONB` columns to `java.lang.String` by calling
   * `PGobject.getValue()` internally. Spark's JDBC reader therefore infers `StringType` for `JSONB`
-  * columns automatically — no custom type mapping or deserializer is required on the connector side.
-  * Applications can parse the returned JSON string downstream using Spark SQL's `from_json` function
-  * or equivalent:
+  * columns automatically — no custom type mapping or deserializer is required on the connector
+  * side. Applications can parse the returned JSON string downstream using Spark SQL's `from_json`
+  * function or equivalent:
   * {{{
   *   df.withColumn("payload_parsed", from_json(col("payload"), schema))
   * }}}
@@ -77,7 +78,8 @@ import com.criticalinfra.engine.ConnectorError
   *   (`_ => ()`) in unit tests to avoid real delays. Default: [[Thread.sleep]].
   * @param sslMode
   *   SSL/TLS enforcement mode injected as the `sslmode` JDBC property. See [[SslMode]] for the four
-  *   available options and their security implications. Default: [[PostgresJdbcConnector.SslMode.Require]].
+  *   available options and their security implications. Default:
+  *   [[PostgresJdbcConnector.SslMode.Require]].
   * @param partitionCol
   *   Column name used to split the JDBC read into parallel Spark partitions. Must be a numeric
   *   column. When `None` (the default), parallel partitioning is disabled and Spark reads the table
@@ -104,9 +106,9 @@ class PostgresJdbcConnector(
 
   /** Fully-qualified JDBC driver class name for the PostgreSQL driver.
     *
-    * The string constant `"org.postgresql.Driver"` is returned without loading the class — the class
-    * is registered automatically by the PostgreSQL driver's `java.sql.DriverManager` service-loader
-    * mechanism when the jar is on the classpath.
+    * The string constant `"org.postgresql.Driver"` is returned without loading the class — the
+    * class is registered automatically by the PostgreSQL driver's `java.sql.DriverManager`
+    * service-loader mechanism when the jar is on the classpath.
     */
   override protected def driverClass: String = "org.postgresql.Driver"
 
@@ -176,15 +178,16 @@ class PostgresJdbcConnector(
 
   /** Injects the `sslmode` JDBC property for every connection.
     *
-    * The `sslmode` property is always present in the returned map — there is no "absent" case.
-    * The default [[SslMode.Require]] enforces an encrypted channel unless the constructor caller
+    * The `sslmode` property is always present in the returned map — there is no "absent" case. The
+    * default [[SslMode.Require]] enforces an encrypted channel unless the constructor caller
     * explicitly opts down to [[SslMode.Disable]] or opts up to [[SslMode.VerifyCa]] /
     * [[SslMode.VerifyFull]].
     *
     * @param config
     *   Pipeline configuration (not used; the SSL mode is set at construction time).
     * @return
-    *   Map containing the single key `"sslmode"` with the JDBC string value for the configured mode.
+    *   Map containing the single key `"sslmode"` with the JDBC string value for the configured
+    *   mode.
     */
   override protected def extraJdbcOptions(config: SourceConfig): Map[String, String] =
     Map("sslmode" -> sslMode.jdbcValue)
@@ -194,8 +197,8 @@ object PostgresJdbcConnector {
 
   /** SSL/TLS enforcement mode for the PostgreSQL JDBC connection.
     *
-    * Maps directly to the PostgreSQL JDBC driver's `sslmode` connection property. See the class-level
-    * ScalaDoc on [[PostgresJdbcConnector]] for full security implications of each mode.
+    * Maps directly to the PostgreSQL JDBC driver's `sslmode` connection property. See the
+    * class-level ScalaDoc on [[PostgresJdbcConnector]] for full security implications of each mode.
     */
   sealed abstract class SslMode(val jdbcValue: String)
 
