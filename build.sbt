@@ -151,7 +151,14 @@ lazy val connectors = project
       "--add-opens=java.base/java.lang=ALL-UNNAMED",
       "--add-opens=java.base/java.nio=ALL-UNNAMED",
       "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
-    )
+    ),
+    // Exclude Oracle integration tests from default CI runs.
+    // Set ORA_INTEGRATION=true to include them:
+    //   ORA_INTEGRATION=true sbt "project connectors" test
+    Test / testOptions ++= {
+      if (sys.env.getOrElse("ORA_INTEGRATION", "false") == "true") Nil
+      else Seq(Tests.Argument(TestFrameworks.ScalaTest, "-l", "com.criticalinfra.connectors.jdbc.OraIntegration"))
+    }
   )
 
 // ---------------------------------------------------------------------------
