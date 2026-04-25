@@ -132,10 +132,22 @@ lazy val connectors = project
     libraryDependencies ++=
       Dependencies.spark ++
         Dependencies.delta ++
+        Dependencies.deltaForTest ++
         Dependencies.config ++
         Dependencies.logging ++
         Dependencies.test ++
-        Dependencies.jdbc
+        Dependencies.jdbc,
+    // Fork test JVM and pin it to Java 17 so that Spark/Delta tests can run
+    // without module-encapsulation errors introduced in Java 9+.
+    Test / fork          := true,
+    Test / javaHome      := { val t17 = file("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"); if (t17.exists()) Some(t17) else None },
+    Test / baseDirectory := (ThisBuild / baseDirectory).value,
+    Test / javaOptions ++= Seq(
+      "--add-opens=java.base/javax.security.auth=ALL-UNNAMED",
+      "--add-opens=java.base/java.lang=ALL-UNNAMED",
+      "--add-opens=java.base/java.nio=ALL-UNNAMED",
+      "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+    )
   )
 
 // ---------------------------------------------------------------------------
