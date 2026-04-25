@@ -1,10 +1,10 @@
 package com.criticalinfra.connectors
 
-import scala.collection.mutable.ListBuffer
-
 import com.criticalinfra.engine.ConnectorError
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+
+import scala.collection.mutable.ListBuffer
 
 // =============================================================================
 // RetryPolicySpec — unit tests for RetryPolicy
