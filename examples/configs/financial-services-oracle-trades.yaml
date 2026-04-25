@@ -7,68 +7,81 @@
 #              date and asset class. Write-once enforcement on the Bronze path
 #              supports Dodd-Frank immutable recordkeeping obligations.
 # Compliance:  Dodd-Frank Act (17 CFR Part 45), NIST CSF 2.0, NCS 2023
+#
+# Driver note: ojdbc11.jar must be supplied by the operator; it is not bundled
+#              with this framework (OTN License). See docs/connectors/oracle-connector.md.
 
-schemaVersion: "1.0"
+schemaVersion: "1.0"   # Schema spec version — must be "1.0" for v0.1.0 engine
 
 metadata:
-  sourceId: "fs-oracle-trades-001"
-  sourceName: "Trade Execution Records — Oracle"
-  sector: "financial-services"
-  owner: "trade-data-engineering"
-  environment: "prod"
+  sourceId: "fs-oracle-trades-001"          # Primary key in the lineage catalog; lowercase, hyphens only
+  sourceName: "Trade Execution Records — Oracle"  # Human-readable name shown in dashboards and alerts
+  sector: "financial-services"              # Activates Dodd-Frank compliance enforcement paths
+  owner: "trade-data-engineering"           # Team receiving failure alerts and lineage attribution
+  environment: "prod"                       # Enables full compliance enforcement and 7-year retention
   tags:
-    - "dodd-frank"
-    - "tier-1"
+    - "dodd-frank"                          # Dodd-Frank Act (17 CFR Part 45) reporting obligation
+    - "tier-1"                              # Tier-1 SLA: pipeline failure pages on-call immediately
     - "trade-reporting"
 
 connection:
-  type: "jdbc"
+  type: "jdbc"                              # Selects JDBC extraction path in the connector registry
   credentialsRef: "vault://secret/prod/oracle-trades/jdbc-credentials"
+  # credentialsRef: Vault path resolved at runtime to username + password.
+  # Never put literal credentials here — this file is safe to commit.
   host: "oracle-trading-prod.internal.example.com"
-  port: 1521
-  database: "TRADEDB"
-  jdbcDriver: "oracle"
+  port: 1521                               # Standard Oracle listener port
+  database: "TRADEDB"                      # Oracle SERVICE NAME (not SID). SID format is not supported.
+  jdbcDriver: "oracle"                     # Selects OracleJdbcConnector; constructs jdbc:oracle:thin:@// URL
 
 ingestion:
-  mode: "incremental"
-  incrementalColumn: "TRADE_TIMESTAMP"
+  mode: "incremental"                      # Only records newer than the stored watermark are extracted
+  incrementalColumn: "TRADE_TIMESTAMP"     # Monotonically increasing column used to filter new records.
+  # Oracle TIMESTAMP column — maps to TimestampWatermark. Do not use TIMESTAMP WITH TIME ZONE
+  # here unless oracle.jdbc.J2EE13Compliant=true is set; see docs/connectors/oracle-connector.md.
   watermarkStorage: "s3://pipeline-state/watermarks/fs-oracle-trades-001"
-  batchSize: 25000
-  parallelism: 8
-  schedule: "0 */4 * * *"
-  timeout: 7200
+  # watermarkStorage: URI where the engine persists MAX(TRADE_TIMESTAMP) after each successful
+  # Bronze write. A failed write leaves the watermark unchanged so the next run re-covers the window.
+  batchSize: 25000                         # JDBC fetchsize (rows per round-trip). Tuned for wide trade rows.
+  parallelism: 8                           # Spark tasks for extraction; also sets numPartitions if partition opts are set
+  schedule: "0 */4 * * *"                  # Every 4 hours; aligns with intra-day risk reporting windows
+  timeout: 7200                            # Abort after 2 hours; prevents runaway extraction blocking the next run
 
 schemaEnforcement:
-  enabled: true
-  mode: "strict"
+  enabled: true                            # Reject records that do not conform to the declared schema
+  mode: "strict"                           # Strict: abort the pipeline on any schema violation (no silent pass-through)
   registryRef: "schemas/financial-services/trade-execution-v2.json"
+  # registryRef: Path to the JSON Schema document in the schema registry that defines
+  # expected column names, types, and nullability for TRADE_EXECUTION records.
 
 qualityRules:
-  enabled: false
+  enabled: false                           # Quality rules are a Phase 2 feature (v0.2.0). Must be false in v0.1.0.
 
 quarantine:
-  enabled: true
+  enabled: true                            # Failed records are written to quarantine, never silently dropped
   path: "s3://datalake-quarantine/financial-services/oracle-trades/"
-  retentionDays: 365
-  errorClassification: true
+  # path: Must differ from storage.path. Failed records land here with structured error codes
+  # attached so they can be reviewed and replayed without re-running the full extraction.
+  retentionDays: 365                       # Quarantine records retained 1 year for investigation and replay
+  errorClassification: true               # Tag each quarantined record with a structured error code (schema, type, null, etc.)
 
 storage:
-  layer: "bronze"
-  format: "delta"
+  layer: "bronze"                          # v0.1.0 engine writes to Bronze only; Silver/Gold are downstream
+  format: "delta"                          # Delta Lake: ACID transactions + time travel for audit compliance
   path: "s3://datalake-bronze/financial-services/oracle-trades/"
   partitionBy:
-    - "trade_date"
-    - "asset_class"
-  compactionEnabled: true
+    - "trade_date"                         # Partition by date enables efficient time-range queries and retention sweeps
+    - "asset_class"                        # Secondary partition reduces scan cost for asset-class-specific regulatory queries
+  compactionEnabled: true                  # Run small-file compaction after each write; reduces read amplification
 
 monitoring:
-  metricsEnabled: true
-  prometheusPort: 9091
-  slaThresholdSeconds: 3600
-  alertOnFailure: true
+  metricsEnabled: true                     # Expose Prometheus endpoint during pipeline execution
+  prometheusPort: 9091                     # Non-default port; avoids clash with other pipelines on the same executor host
+  slaThresholdSeconds: 3600                # Emit SLA breach event if extraction + write exceeds 1 hour
+  alertOnFailure: true                     # Page the owner team on any terminal pipeline failure
 
 audit:
-  enabled: true
-  lineageTracking: true
-  immutableRawEnabled: true
-  retentionDays: 2555
+  enabled: true                            # Write audit records to lineage catalog for every run
+  lineageTracking: true                    # Record source-to-Bronze lineage (table → S3 path, run timestamp, row counts)
+  immutableRawEnabled: true               # Enforce write-once on the Bronze path — supports Dodd-Frank 17 CFR Part 45
+  retentionDays: 2555                      # 7-year retention (2555 days) — U.S. financial services regulatory minimum
