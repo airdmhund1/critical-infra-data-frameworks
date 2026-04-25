@@ -148,7 +148,11 @@ object Dependencies {
     */
   val h2: ModuleID = "com.h2database" % "h2" % "2.2.224" % Test
 
-  val jdbc: Seq[ModuleID] = Seq(h2)
+  /** PostgreSQL JDBC driver — BSD licensed, test-scoped for Testcontainers integration tests. */
+  val postgresJdbc: ModuleID =
+    "org.postgresql" % "postgresql" % "42.7.3" % Test
+
+  val jdbc: Seq[ModuleID] = Seq(h2, postgresJdbc)
 
   // ---------------------------------------------------------------------------
   // AWS SDK v2 — Secrets Manager client (production scope; not test-only)
