@@ -136,7 +136,11 @@ lazy val connectors = project
         Dependencies.config ++
         Dependencies.logging ++
         Dependencies.test ++
-        Dependencies.jdbc,
+        Dependencies.jdbc ++
+        Seq(
+          Dependencies.testcontainersScala,
+          Dependencies.testcontainersJdbc
+        ),
     // Fork test JVM and pin it to Java 17 so that Spark/Delta tests can run
     // without module-encapsulation errors introduced in Java 9+.
     Test / fork          := true,
