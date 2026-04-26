@@ -288,7 +288,7 @@ class JsonFileConnector(
       case StructField(name, _, _, _) =>
         Seq(col(s"`$name`"))
     }
-    df.select(flatCols: _*)
+    df.select(flatCols.toIndexedSeq: _*)
   }
 
   // ---------------------------------------------------------------------------
