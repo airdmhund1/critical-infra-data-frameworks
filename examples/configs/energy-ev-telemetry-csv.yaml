@@ -9,64 +9,91 @@
 #              Five-year retention satisfies NERC CIP-007 and CIP-008
 #              event-log and incident-response recordkeeping requirements.
 # Compliance:  NERC CIP (CIP-007 R5, CIP-008 R3), NIST CSF 2.0, NCS 2023
+# Schema:      ADR-005 (docs/architecture-decisions.md) governs schema handling
+#              for all file-based connectors. Silent inference is prohibited.
+#              Schema mode "strict" is declared in schemaEnforcement.mode below.
 
-schemaVersion: "1.0"
+schemaVersion: "1.0"   # Schema spec version — must be "1.0" for v0.1.0 engine
 
 metadata:
-  sourceId: "energy-ev-telemetry-csv-001"
-  sourceName: "EV Charging Station Telemetry — CSV"
-  sector: "energy"
-  owner: "grid-data-engineering"
-  environment: "prod"
+  sourceId: "energy-ev-telemetry-csv-001"          # Primary key in the lineage catalog; lowercase, hyphens only
+  sourceName: "EV Charging Station Telemetry — CSV"  # Human-readable name shown in dashboards and alerts
+  sector: "energy"                                  # Activates NERC CIP compliance enforcement paths
+  owner: "grid-data-engineering"                    # Team receiving failure alerts and lineage attribution
+  environment: "prod"                               # Enables full compliance enforcement and audit retention
   tags:
-    - "nerc-cip"
+    - "nerc-cip"                                    # NERC CIP-007 R5 / CIP-008 R3 data-integrity requirements
     - "ev-infrastructure"
     - "telemetry"
 
 connection:
-  type: "file"
+  type: "file"                                      # Selects the file connector path in the connector registry
   credentialsRef: "vault://secret/prod/ev-telemetry/storage-credentials"
-  filePath: "/data/inbound/ev-telemetry/"
-  fileFormat: "csv"
+  # credentialsRef: Vault path resolved at runtime to storage credentials (S3 access key / role ARN).
+  # Never put literal credentials here — this file is safe to commit.
+  filePath: "s3://inbound-ev-telemetry/drops/date=*/station-*.csv"
+  # filePath supports Spark glob patterns. This example picks up all per-station
+  # CSV files under any date-partitioned drop directory — matching the nightly
+  # multi-file delivery pattern used by most EV CSMS vendors.
+  # Supported wildcards: * (any chars), ? (single char), {a,b} (alternation).
+  fileFormat: "csv"                                 # Selects CsvFileConnector via the connector registry
+  # CSV connector options (CsvFileConnector constructor parameters — defaults shown):
+  #   delimiter:    ","       — field separator; change to "|" for pipe-delimited feeds
+  #   quote:        "\""      — character used to quote fields containing the delimiter
+  #   escape:       "\\"      — escape character within quoted fields
+  #   header:       true      — first row is a header; column names taken from it
+  #   encoding:     "UTF-8"   — file character encoding
+  #   nullValue:    ""        — string representation of NULL in this feed
+  #   corruptRecordMode: "FAILFAST"  — abort on first unparseable record (default);
+  #                                    alternatives: DROPMALFORMED (quarantine routing),
+  #                                    PERMISSIVE (add _corrupt_record column)
+  # These options are passed to CsvFileConnector at instantiation by the ConnectorRegistry.
+  # To override, subclass CsvFileConnector or extend the connector registry mapping.
 
 ingestion:
-  mode: "full"
+  mode: "full"                                      # Full load each run — nightly drop pattern; no watermark required
   batchSize: 50000
   parallelism: 4
-  schedule: "0 2 * * *"
-  timeout: 5400
+  schedule: "0 2 * * *"                             # 02:00 UTC daily; runs after nightly file drop window closes
+  timeout: 5400                                     # 90 min; abort before the next scheduled run begins
 
 schemaEnforcement:
-  enabled: true
+  enabled: true                                     # Required for regulated sources; rejects records that do not conform
   mode: "strict"
+  # mode: maps to CsvFileConnector.SchemaMode.Strict — the registered schema from
+  # registryRef is applied on read. Any non-conforming file raises a ConnectorError
+  # and the pipeline halts or routes to quarantine per ADR-005.
   registryRef: "schemas/energy/ev-charging-telemetry-v1.json"
+  # registryRef: Path to the JSON Schema document in the schema registry that
+  # declares expected column names, types, and nullability for
+  # ev-charging-telemetry records. ADR-005 mandates this field for all file sources.
 
 qualityRules:
-  enabled: false
+  enabled: false                                    # Quality rules are a Phase 2 feature (v0.2.0). Must be false in v0.1.0.
 
 quarantine:
-  enabled: true
+  enabled: true                                     # Failed records written to quarantine, never silently dropped
   path: "s3://datalake-quarantine/energy/ev-telemetry/"
-  retentionDays: 180
-  errorClassification: true
+  retentionDays: 180                                # 180 days for telemetry (shorter than financial data; no multi-year replay requirement)
+  errorClassification: true                         # Tag each quarantined record with a structured error code (schema, type, null, etc.)
 
 storage:
-  layer: "bronze"
-  format: "delta"
+  layer: "bronze"                                   # v0.1.0 engine writes to Bronze only; Silver/Gold are downstream
+  format: "delta"                                   # Delta Lake: ACID transactions + time travel for audit compliance
   path: "s3://datalake-bronze/energy/ev-telemetry/"
   partitionBy:
-    - "ingestion_date"
-    - "station_region"
-  compactionEnabled: false
+    - "ingestion_date"                              # Partition by ingestion date for time-range queries and retention sweeps
+    - "station_region"                              # Secondary partition by grid region — enables region-scoped ops review
+  compactionEnabled: false                          # False for nightly drops; low write frequency makes compaction unnecessary
 
 monitoring:
-  metricsEnabled: true
-  prometheusPort: 9092
-  slaThresholdSeconds: 3600
-  alertOnFailure: true
+  metricsEnabled: true                              # Expose Prometheus endpoint during pipeline execution
+  prometheusPort: 9092                              # Non-default port; avoids clash with other pipelines on the same executor host
+  slaThresholdSeconds: 3600                         # 1 hour; telemetry must land in Bronze before morning ops review begins
+  alertOnFailure: true                              # Page the owner team on any terminal pipeline failure
 
 audit:
-  enabled: true
-  lineageTracking: true
-  immutableRawEnabled: true
-  retentionDays: 1825
+  enabled: true                                     # Write audit records to lineage catalog for every run
+  lineageTracking: true                             # Record source-to-Bronze lineage (S3 path, run timestamp, row counts)
+  immutableRawEnabled: true                         # NERC CIP-007 R5 data-integrity requirement: enforce write-once on the Bronze path
+  retentionDays: 1825                               # 1825 days (5-year NERC CIP retention) — satisfies CIP-007 R5 and CIP-008 R3
