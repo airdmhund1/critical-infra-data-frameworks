@@ -1,0 +1,108 @@
+# Source:      OMS Trade Lifecycle Events — JSON Lines
+# Sector:      Financial Services
+# Description: Ingests trade lifecycle events (order placement, execution,
+#              cancellation, amendment) from the firm's Order Management System
+#              API gateway. Events are delivered as a JSON Lines feed — one
+#              JSON object per line — to a monitored S3 drop path.
+#              Strict schema enforcement ensures no silent event-type drift
+#              reaches the Bronze layer. Seven-year retention satisfies
+#              Dodd-Frank Act (17 CFR Part 45) electronic recordkeeping
+#              requirements for trade order records.
+# Compliance:  Dodd-Frank Act (17 CFR Part 45), NIST CSF 2.0, NCS 2023
+# Schema:      ADR-005 (docs/architecture-decisions.md) governs schema handling
+#              for all file-based connectors. Silent inference is prohibited.
+#              Schema mode "strict" is declared in schemaEnforcement.mode below.
+
+schemaVersion: "1.0"   # Schema spec version — must be "1.0" for v0.1.0 engine
+
+metadata:
+  sourceId: "fs-oms-trade-events-json-001"          # Primary key in the lineage catalog; lowercase, hyphens only
+  sourceName: "OMS Trade Lifecycle Events — JSON Lines"  # Human-readable name shown in dashboards and alerts
+  sector: "financial-services"                       # Activates Dodd-Frank compliance enforcement paths
+  owner: "trade-data-engineering"                    # Team receiving failure alerts and lineage attribution
+  environment: "prod"                                # Enables full compliance enforcement and audit retention
+  tags:
+    - "dodd-frank"                                   # Dodd-Frank Act (17 CFR Part 45) electronic recordkeeping obligation
+    - "tier-1"                                       # Tier-1 SLA: pipeline failure pages on-call immediately
+    - "trade-events"
+    - "oms"
+
+connection:
+  type: "file"                                       # Selects the file connector path in the connector registry
+  credentialsRef: "vault://secret/prod/oms-events/s3-credentials"
+  # credentialsRef: Vault path resolved at runtime to storage credentials (S3 access key / role ARN).
+  # Never put literal credentials here — this file is safe to commit.
+  filePath: "s3://oms-trade-events/feeds/date=*/events-*.jsonl"
+  # filePath: Spark glob pattern. One .jsonl file is written per OMS node per day under a
+  # date-partitioned prefix. This pattern picks up all node files for any date present in
+  # the drop path. Supports Spark wildcards: * (any chars), ? (single char), {a,b} (alternation).
+  fileFormat: "json"                                 # Selects JsonFileConnector via the connector registry
+  # JSON connector options (JsonFileConnector constructor parameters — values used for this source):
+  #   jsonFormat:        "json-lines"    — one JSON object per line (JSON Lines / NDJSON). Default.
+  #                                        Use "multiline-array" for [{...},{...}] array files.
+  #   schemaMode:        "strict"        — registered schema applied on read; non-conforming
+  #                                        events raise ConnectorError per ADR-005.
+  #   corruptRecordMode: "FAILFAST"      — abort on first unparseable event record (default);
+  #                                        alternatives: DROPMALFORMED (quarantine routing),
+  #                                        PERMISSIVE (add _corrupt_record column)
+  #   flattenDepth:      1               — OMS events have one level of nested metadata; flattening
+  #                                        expands event.metadata.{field} to event_metadata_{field}
+  #                                        at the top level for easier downstream SQL access.
+  #                                        Use 0 to preserve nested struct columns.
+  # These options are passed to JsonFileConnector at instantiation by the ConnectorRegistry.
+
+ingestion:
+  mode: "full"
+  # mode: full load per drop — incremental not applicable here because OMS events are immutable
+  # once written to the drop path. Each 15-minute run reads all files present since the last
+  # successful run; the engine de-duplicates by event_id in the Bronze write step.
+  batchSize: 100000                                  # OMS events are narrow JSON objects; higher batch size is safe
+  parallelism: 4
+  schedule: "*/15 * * * *"                           # Every 15 minutes during market hours; events land continuously
+  timeout: 600                                       # 10 minutes; abort before next scheduled run
+
+schemaEnforcement:
+  enabled: true                                      # Required for regulated sources; rejects events that do not conform
+  mode: "strict"
+  # mode: maps to JsonFileConnector.SchemaMode.Strict — the registered schema from registryRef is
+  # applied on read. Any non-conforming event raises a ConnectorError per ADR-005. If the OMS team
+  # introduces a new event type, the schema must be explicitly versioned and updated (e.g.
+  # oms-trade-events-v4.json) before the new events land; the pipeline will not self-adapt.
+  registryRef: "schemas/financial-services/oms-trade-events-v3.json"
+  # registryRef: Path to the JSON Schema document in the schema registry declaring expected fields,
+  # types, and nullability for OMS trade lifecycle events. Also specifies which nested
+  # event metadata fields (event.metadata.*) are flattened to top-level columns by flattenDepth=1.
+
+qualityRules:
+  enabled: false                                     # Quality rules are a Phase 2 feature (v0.2.0). Must be false in v0.1.0.
+
+quarantine:
+  enabled: true                                      # Failed events written to quarantine, never silently dropped
+  path: "s3://datalake-quarantine/financial-services/oms-trade-events/"
+  retentionDays: 365                                 # 1-year quarantine retention; failed events reviewed and replayed quarterly
+  errorClassification: true                          # Tag each quarantined event with a structured error code (schema, type, null, etc.)
+
+storage:
+  layer: "bronze"                                    # v0.1.0 engine writes to Bronze only; Silver/Gold are downstream
+  format: "delta"                                    # Delta Lake: ACID transactions + time travel for audit compliance
+  path: "s3://datalake-bronze/financial-services/oms-trade-events/"
+  partitionBy:
+    - "event_date"                                   # Partition by date enables efficient time-range compliance queries and retention sweeps
+    - "event_type"                                   # Secondary partition scopes access by lifecycle stage: order/execution/cancellation/amendment
+  compactionEnabled: true
+  # compactionEnabled: high write frequency (15-minute cadence) produces many small files per
+  # partition; compaction is important to prevent read amplification in downstream audit queries.
+
+monitoring:
+  metricsEnabled: true                               # Expose Prometheus endpoint during pipeline execution
+  prometheusPort: 9093                               # Non-default port; avoids clash with other pipelines on the same executor host
+  slaThresholdSeconds: 300                           # 5-minute SLA; events must land in Bronze before the next ingest cycle fires
+  alertOnFailure: true                               # Page the owner team on any terminal pipeline failure
+
+audit:
+  enabled: true                                      # Write audit records to lineage catalog for every run
+  lineageTracking: true                              # Record source-to-Bronze lineage (S3 path, run timestamp, event counts)
+  immutableRawEnabled: true
+  # immutableRawEnabled: Dodd-Frank 17 CFR Part 45 electronic recordkeeping requirement — enforce
+  # write-once on the Bronze path so trade lifecycle events cannot be altered after ingestion.
+  retentionDays: 2555                                # 7-year retention (2555 days) — U.S. financial services regulatory minimum for trade order records
