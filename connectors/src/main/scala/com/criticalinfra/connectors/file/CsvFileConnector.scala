@@ -2,8 +2,8 @@ package com.criticalinfra.connectors.file
 
 import com.criticalinfra.config.SourceConfig
 import com.criticalinfra.engine.ConnectorError
-import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.slf4j.LoggerFactory
 
 import scala.util.Try
