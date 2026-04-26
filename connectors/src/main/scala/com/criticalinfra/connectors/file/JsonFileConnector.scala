@@ -49,10 +49,10 @@ import scala.util.Try
   *
   *   - '''`DiscoveredAndLog`''': Spark infers the schema internally (for comparison purposes only)
   *     and compares it against the registered schema. Any structural differences — added fields,
-  *     missing fields, or type mismatches — are emitted as structured WARN log entries with the full
-  *     field-level diff. The inferred schema is '''never''' surfaced to the output DataFrame; the
-  *     pipeline applies the registered schema for all downstream processing. This mode is intended
-  *     for source-onboarding and monitoring, not production ingestion.
+  *     missing fields, or type mismatches — are emitted as structured WARN log entries with the
+  *     full field-level diff. The inferred schema is '''never''' surfaced to the output DataFrame;
+  *     the pipeline applies the registered schema for all downstream processing. This mode is
+  *     intended for source-onboarding and monitoring, not production ingestion.
   *
   * ==ADR-005 enforcement==
   *
@@ -95,9 +95,8 @@ import scala.util.Try
   * @param schemaMode
   *   Schema enforcement mode. Must be `Strict` or `DiscoveredAndLog`. See ADR-005.
   * @param jsonFormat
-  *   JSON wire format. `JsonLines` (default) for one-object-per-line NDJSON files;
-  *   `MultilineArray` for a single JSON array spanning multiple lines. Controls the Spark
-  *   `multiLine` read option.
+  *   JSON wire format. `JsonLines` (default) for one-object-per-line NDJSON files; `MultilineArray`
+  *   for a single JSON array spanning multiple lines. Controls the Spark `multiLine` read option.
   * @param corruptRecordMode
   *   How corrupt or non-parseable records are handled. Default: `FailFast`.
   * @param flattenDepth
@@ -278,15 +277,14 @@ class JsonFileConnector(
   /** Flattens one level of top-level `StructType` columns.
     *
     * For each top-level field of type `StructType`, the sub-fields are expanded to top-level
-    * columns named `parent_child`. Non-struct top-level fields pass through unchanged. Inner structs
-    * nested two or more levels deep are not recursed into and remain as `StructType` columns.
+    * columns named `parent_child`. Non-struct top-level fields pass through unchanged. Inner
+    * structs nested two or more levels deep are not recursed into and remain as `StructType`
+    * columns.
     */
   private def flattenOnce(df: DataFrame): DataFrame = {
     val flatCols = df.schema.fields.flatMap {
       case StructField(name, st: StructType, _, _) =>
-        st.fields.map(sub =>
-          col(s"`$name`.`${sub.name}`").alias(s"${name}_${sub.name}")
-        ).toSeq
+        st.fields.map(sub => col(s"`$name`.`${sub.name}`").alias(s"${name}_${sub.name}")).toSeq
       case StructField(name, _, _, _) =>
         Seq(col(s"`$name`"))
     }
@@ -374,8 +372,8 @@ object JsonFileConnector {
     /** A single JSON array containing multiple objects, possibly spanning multiple lines.
       *
       * Spark reads these with `multiLine = true`. The entire file is parsed as a single JSON
-      * document. Use this format when the upstream producer writes a JSON array with pretty-printing
-      * or when individual objects span more than one line.
+      * document. Use this format when the upstream producer writes a JSON array with
+      * pretty-printing or when individual objects span more than one line.
       */
     case object MultilineArray extends JsonFormat
   }
