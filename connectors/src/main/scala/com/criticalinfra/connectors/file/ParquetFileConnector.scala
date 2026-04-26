@@ -40,24 +40,24 @@ import scala.util.Try
   * schema between pipeline runs — adding columns, removing columns, or changing field types. When
   * this happens, the embedded schema the connector reads from the file on the next run will differ
   * from the registered schema in the schema registry. Without drift detection this divergence is
-  * invisible until a downstream consumer surfaces incorrect results, which in regulated environments
-  * may be after a reporting deadline. Configuring `schemaRef` enables structural comparison on every
-  * read and emits a WARN log entry whenever a difference is found, allowing operators to catch and
-  * respond to upstream producer changes promptly.
+  * invisible until a downstream consumer surfaces incorrect results, which in regulated
+  * environments may be after a reporting deadline. Configuring `schemaRef` enables structural
+  * comparison on every read and emits a WARN log entry whenever a difference is found, allowing
+  * operators to catch and respond to upstream producer changes promptly.
   *
   * ==Hive partition discovery==
   *
-  * When the `filePath` in the pipeline configuration points to a directory that contains
-  * Hive-style `key=value` sub-directories (e.g. `date=2024-01-01/`, `date=2024-01-02/`), Spark's
-  * Parquet reader discovers those partitions automatically. The partition column (e.g. `date`) is
-  * added to the DataFrame schema as a string column derived from the directory name, not from the
-  * Parquet footer. No special connector option is required — `spark.read.parquet(path)` handles
-  * partition discovery natively for directory paths.
+  * When the `filePath` in the pipeline configuration points to a directory that contains Hive-style
+  * `key=value` sub-directories (e.g. `date=2024-01-01/`, `date=2024-01-02/`), Spark's Parquet
+  * reader discovers those partitions automatically. The partition column (e.g. `date`) is added to
+  * the DataFrame schema as a string column derived from the directory name, not from the Parquet
+  * footer. No special connector option is required — `spark.read.parquet(path)` handles partition
+  * discovery natively for directory paths.
   *
   * ==Partition filter pushdown==
   *
-  * The `startDate` and `endDate` constructor parameters bound which partitions are loaded.
-  * When both are `None`, all partitions are read. When either is set, a DataFrame filter on the
+  * The `startDate` and `endDate` constructor parameters bound which partitions are loaded. When
+  * both are `None`, all partitions are read. When either is set, a DataFrame filter on the
   * `partitionDateColumn` column is applied after the initial read. Spark evaluates this filter
   * against partition directory names, which avoids reading Parquet data blocks for out-of-range
   * partitions — this is the standard Spark partition pruning mechanism. Date values must be
@@ -65,9 +65,9 @@ import scala.util.Try
   *
   * ==Column pruning==
   *
-  * When `schemaRef` is configured, the connector selects only the columns whose names appear in
-  * the registered `StructType`. Partition columns that are not declared in the registered schema
-  * are dropped from the output DataFrame. This ensures the DataFrame returned from `extract` has
+  * When `schemaRef` is configured, the connector selects only the columns whose names appear in the
+  * registered `StructType`. Partition columns that are not declared in the registered schema are
+  * dropped from the output DataFrame. This ensures the DataFrame returned from `extract` has
   * exactly the shape the pipeline configuration describes, regardless of how many extra columns the
   * Parquet files carry or how many partition columns Hive discovery adds.
   *
@@ -84,18 +84,18 @@ import scala.util.Try
   *   implementation returns a `Left(ConnectorError)` so that tests that omit a loader fail
   *   explicitly rather than silently loading an unexpected schema.
   * @param partitionDateColumn
-  *   Name of the Hive partition column used for date-range filter pushdown. Default: `"date"`.
-  *   Must match the directory key in `date=YYYY-MM-DD` paths.
+  *   Name of the Hive partition column used for date-range filter pushdown. Default: `"date"`. Must
+  *   match the directory key in `date=YYYY-MM-DD` paths.
   * @param startDate
-  *   Inclusive lower bound for partition filter pushdown in `"YYYY-MM-DD"` format. When `None`,
-  *   no lower bound is applied.
+  *   Inclusive lower bound for partition filter pushdown in `"YYYY-MM-DD"` format. When `None`, no
+  *   lower bound is applied.
   * @param endDate
-  *   Inclusive upper bound for partition filter pushdown in `"YYYY-MM-DD"` format. When `None`,
-  *   no upper bound is applied.
+  *   Inclusive upper bound for partition filter pushdown in `"YYYY-MM-DD"` format. When `None`, no
+  *   upper bound is applied.
   */
 class ParquetFileConnector(
-    schemaLoader: String => Either[ConnectorError, StructType] =
-      _ => Left(ConnectorError("ParquetFileConnector", "No schemaLoader configured")),
+    schemaLoader: String => Either[ConnectorError, StructType] = _ =>
+      Left(ConnectorError("ParquetFileConnector", "No schemaLoader configured")),
     partitionDateColumn: String = "date",
     startDate: Option[String] = None,
     endDate: Option[String] = None
