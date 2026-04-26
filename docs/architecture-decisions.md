@@ -98,3 +98,42 @@ Production deployment of this observability approach reduced manual operational 
 - Monitoring infrastructure adds operational overhead (Grafana, Prometheus, log aggregation)
 - Dashboard design requires collaboration with compliance and operations stakeholders
 - Metrics retention policies must be aligned with regulatory record-keeping requirements
+
+---
+
+## ADR-005: Explicit Schema Modes for File-Based Source Connectors
+
+### Status
+Accepted
+
+### Context
+File-based sources — CSV, JSON, TSV, fixed-width — are common in regulated sectors: meter readings, trade reports, and regulatory submissions are routinely delivered as flat files. Apache Spark's default behaviour for CSV and JSON reads is **schema inference**: it samples records and guesses column types, behaviour that is invisible to the pipeline operator.
+
+In regulated environments, silent schema inference creates three categories of risk:
+
+1. **Data integrity risk**: a type widening (e.g. an integer column inferred as string) silently corrupts downstream aggregations without raising an error.
+2. **Compliance risk**: pipelines must be reproducible and auditable; schema inference is non-deterministic across Spark versions and sample sizes, meaning the same source file can produce different schemas on different runs.
+3. **Drift blindness**: when a file producer changes column names or types, an inference-based pipeline silently adapts — the change goes undetected until downstream consumers surface incorrect results, which may be after regulatory reporting has occurred.
+
+### Decision
+All file-based source connectors in this framework operate in one of exactly two explicit schema modes. There is no third "auto" or "inferred" mode.
+
+- **`strict` mode**: the operator declares a `schemaRef` in the pipeline configuration pointing to a registered JSON Schema document. The connector reads the file with the declared schema applied. Any record that does not conform raises a `ConnectorError` and the pipeline halts (or routes to quarantine, depending on the corrupt record mode setting). The schema is never inferred from the data.
+- **`discovered-and-log` mode**: the connector allows Spark to infer the schema from the file and compares the inferred schema against the registered schema for the source. Any structural difference — new columns, missing columns, type changes — is emitted as a structured WARN log entry with the full diff. The inferred schema is **never automatically applied** to downstream processing; the pipeline still applies the registered schema. This mode is intended for source-onboarding and monitoring, not for production ingestion.
+
+Silent schema inference (`inferSchema=true` with no comparison or logging) is explicitly prohibited and must never be used in a connector implementation.
+
+### Rationale
+- Maps to **NERC CIP-007** (data integrity for energy sector) and **Dodd-Frank Act** data-quality requirements (financial services): both require that data ingestion is auditable and reproducible.
+- **NIST CSF 2.0 Identify function**: asset management requires that the schema of data flowing through the system is known and governed, not discovered at runtime.
+- Production incident pattern: in financial services environments, silent schema changes in upstream flat-file feeds have caused incorrect regulatory capital calculations that were not detected until next-day reconciliation — after the reporting deadline.
+- The `discovered-and-log` mode provides a safe path for schema change detection without creating a pipeline failure that blocks time-sensitive ingestion; operators are notified of drift and can update the registered schema after review.
+
+### Consequences
+- Every file-based source must have a registered schema (`schemaRef`) — there is no zero-configuration onboarding path for file sources.
+- Operators must update the registered schema explicitly when a source producer makes a breaking change; the pipeline will not self-adapt.
+- `discovered-and-log` mode produces WARN log entries that must be monitored; recommended: alert on any schema drift event in production pipelines.
+- Spark's `inferSchema=true` option may still be used internally by the framework in `discovered-and-log` mode for comparison purposes, but the inferred schema is never surfaced to the DataFrame that leaves the connector — this distinction must be enforced in code review.
+- This ADR supersedes any earlier framework behaviour that permitted implicit inference; all file connectors written before this ADR was accepted must be updated to conform.
+
+---
