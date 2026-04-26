@@ -159,22 +159,23 @@ abstract class JdbcConnectorBase(
   def persistWatermark(
       config: SourceConfig,
       data: DataFrame
-  ): Either[ConnectorError, Unit] = {
-    if (config.ingestion.mode == IngestionMode.Full) return Right(())
+  ): Either[ConnectorError, Unit] =
+    config.ingestion.mode match {
+      case IngestionMode.Full => Right(())
+      case IngestionMode.Incremental =>
+        val incrementalColumnOpt = config.ingestion.incrementalColumn
+        val watermarkStorageOpt  = config.ingestion.watermarkStorage
 
-    val incrementalColumnOpt = config.ingestion.incrementalColumn
-    val watermarkStorageOpt  = config.ingestion.watermarkStorage
-
-    (incrementalColumnOpt, watermarkStorageOpt) match {
-      case (None, _) => Right(())
-      case (_, None) => Right(())
-      case (Some(incrementalCol), Some(_)) =>
-        computeNewWatermark(data, incrementalCol, config.metadata.sourceId).flatMap {
-          case None          => Right(())
-          case Some(newMark) => watermarkStore.write(config.metadata.sourceId, newMark)
+        (incrementalColumnOpt, watermarkStorageOpt) match {
+          case (None, _) => Right(())
+          case (_, None) => Right(())
+          case (Some(incrementalCol), Some(_)) =>
+            computeNewWatermark(data, incrementalCol, config.metadata.sourceId).flatMap {
+              case None          => Right(())
+              case Some(newMark) => watermarkStore.write(config.metadata.sourceId, newMark)
+            }
         }
     }
-  }
 
   // ---------------------------------------------------------------------------
   // testConnection — verifies connectivity via DriverManager with retry
