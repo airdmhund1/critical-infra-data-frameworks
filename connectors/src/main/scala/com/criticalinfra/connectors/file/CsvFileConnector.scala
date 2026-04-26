@@ -39,8 +39,8 @@ import scala.util.Try
   * ==ADR-005 enforcement==
   *
   * `inferSchema=true` is used only inside `readDiscoveredAndLog` for the internal diff computation.
-  * The inferred schema is discarded after comparison. The DataFrame returned from `extract` in every
-  * mode always carries the registered schema — never the inferred one.
+  * The inferred schema is discarded after comparison. The DataFrame returned from `extract` in
+  * every mode always carries the registered schema — never the inferred one.
   *
   * ==CSV options==
   *
@@ -56,8 +56,9 @@ import scala.util.Try
   *
   * ==Glob path support==
   *
-  * Spark's native CSV reader accepts glob patterns (e.g. `"/data/feeds/part-*.csv"`). This connector
-  * passes the path through to Spark without modification, so glob patterns work transparently.
+  * Spark's native CSV reader accepts glob patterns (e.g. `"/data/feeds/part-*.csv"`). This
+  * connector passes the path through to Spark without modification, so glob patterns work
+  * transparently.
   *
   * ==Corrupt record modes==
   *
@@ -90,7 +91,8 @@ import scala.util.Try
   */
 class CsvFileConnector(
     schemaMode: CsvFileConnector.SchemaMode,
-    corruptRecordMode: CsvFileConnector.CorruptRecordMode = CsvFileConnector.CorruptRecordMode.FailFast,
+    corruptRecordMode: CsvFileConnector.CorruptRecordMode =
+      CsvFileConnector.CorruptRecordMode.FailFast,
     delimiter: String = ",",
     quote: String = "\"",
     escape: String = "\\",
@@ -121,7 +123,10 @@ class CsvFileConnector(
     * @return
     *   `Right(dataFrame)` with the registered schema applied, or `Left(ConnectorError)`.
     */
-  override def extract(config: SourceConfig, spark: SparkSession): Either[ConnectorError, DataFrame] = {
+  override def extract(
+      config: SourceConfig,
+      spark: SparkSession
+  ): Either[ConnectorError, DataFrame] = {
 
     // Step 1 — resolve file path
     val path = config.connection.filePath.getOrElse(
@@ -146,8 +151,9 @@ class CsvFileConnector(
     // Step 3 — resolve registered schema, then dispatch to the appropriate read strategy
     schemaLoader(schemaRef).flatMap { registeredSchema =>
       schemaMode match {
-        case CsvFileConnector.SchemaMode.Strict              => readStrict(spark, path, registeredSchema, config)
-        case CsvFileConnector.SchemaMode.DiscoveredAndLog    => readDiscoveredAndLog(spark, path, registeredSchema, config)
+        case CsvFileConnector.SchemaMode.Strict => readStrict(spark, path, registeredSchema, config)
+        case CsvFileConnector.SchemaMode.DiscoveredAndLog =>
+          readDiscoveredAndLog(spark, path, registeredSchema, config)
       }
     }
   }
@@ -275,8 +281,9 @@ class CsvFileConnector(
     }.toList
 
     val typeMismatches = registeredFields.collect {
-      case (name, regField) if inferredFields.contains(name) &&
-        inferredFields(name).dataType != regField.dataType =>
+      case (name, regField)
+          if inferredFields.contains(name) &&
+            inferredFields(name).dataType != regField.dataType =>
         s"type mismatch: ${regField.name} — registered: ${regField.dataType.simpleString}, " +
           s"inferred: ${inferredFields(name).dataType.simpleString}"
     }.toList
@@ -354,7 +361,8 @@ object CsvFileConnector {
       */
     case object DropMalformed extends CorruptRecordMode("DROPMALFORMED")
 
-    /** Allow corrupt records; adds a `_corrupt_record` string column containing the raw input line. */
+    /** Allow corrupt records; adds a `_corrupt_record` string column containing the raw input line.
+      */
     case object Permissive extends CorruptRecordMode("PERMISSIVE")
   }
 }
