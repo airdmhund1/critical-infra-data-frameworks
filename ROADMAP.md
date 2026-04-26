@@ -23,16 +23,16 @@ Target release: v0.1.0
 - [x] Issue #5: Ingestion engine — pipeline orchestrator with configurable step execution
 - [x] Issue #6: Secrets resolver — HashiCorp Vault and AWS KMS implementations
 
-### Sprint 3 (Weeks 5–6) — ACTIVE
+### Sprint 3 (Weeks 5–6) — COMPLETE (2026-04-26)
 
-- [ ] Issue #7: JDBC connector base — watermark incremental extraction, parallel reads, retry logic
-- [ ] Issue #8: Oracle JDBC connector — enterprise-grade with Oracle-specific partition strategies
-- [ ] Issue #9: PostgreSQL JDBC connector
-- [ ] Issue #10: CSV file connector — schema-enforced with controlled inference modes
-- [ ] Issue #11: Parquet file connector — schema-aware with Hive partition discovery
-- [ ] Issue #12: JSON file connector — schema-enforced with nested structure handling
+- [x] Issue #7: JDBC connector base — watermark incremental extraction, parallel reads, retry logic
+- [x] Issue #8: Oracle JDBC connector — enterprise-grade with Oracle-specific partition strategies
+- [x] Issue #9: PostgreSQL JDBC connector
+- [x] Issue #10: CSV file connector — schema-enforced with controlled inference modes
+- [x] Issue #11: Parquet file connector — schema-aware with Hive partition discovery
+- [x] Issue #12: JSON file connector — schema-enforced with nested structure handling
 
-### Sprint 4 (Weeks 7–8) — PLANNED
+### Sprint 4 (Weeks 7–8) — ACTIVE
 
 - [ ] Issue #13: Bronze layer writer — Delta Lake, immutable, time-partitioned, checksum-validated
 - [ ] Issue #14: Audit event log — structured, append-only compliance audit trail
