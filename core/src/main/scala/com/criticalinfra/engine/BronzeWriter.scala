@@ -57,9 +57,9 @@ final case class WriteResult(
   *
   *   - Any write failure must be returned as `Left(StorageWriteError)`. Exceptions must never be
   *     allowed to propagate to the caller.
-  *   - A [[WriteResult]] is returned in `Right` on success, carrying the record count, storage path,
-  *     partition date, and checksum alongside the record count so that the engine can construct a
-  *     complete audit trail without performing additional reads.
+  *   - A [[WriteResult]] is returned in `Right` on success, carrying the record count, storage
+  *     path, partition date, and checksum alongside the record count so that the engine can
+  *     construct a complete audit trail without performing additional reads.
   *   - Implementations must not modify the supplied DataFrame before writing it.
   *   - The supplied `runId` is the correlation key for this write; implementations may embed it in
   *     metadata or file paths as required by their storage format.
@@ -76,8 +76,8 @@ trait BronzeLayerWriter {
     * @param runId
     *   Unique identifier for this pipeline run, used as a correlation key in audit metadata.
     * @return
-    *   `Right(WriteResult)` containing write metadata on success, or
-    *   `Left(StorageWriteError(path, cause))` if the write fails for any reason.
+    *   `Right(WriteResult)` containing write metadata on success, or `Left(StorageWriteError(path,
+    *   cause))` if the write fails for any reason.
     */
   def write(
       data: DataFrame,
@@ -161,16 +161,16 @@ final class DefaultBronzeLayerWriter extends BronzeLayerWriter {
   *
   * Writes `data` in append mode using the Delta Lake format to the path specified in
   * `config.storage.path`. If `config.storage.partitionBy` is non-empty, the data is partitioned by
-  * those columns. The record count is computed before the write operation so that a precise count is
-  * always available even if the write subsequently fails.
+  * those columns. The record count is computed before the write operation so that a precise count
+  * is always available even if the write subsequently fails.
   *
   * The entire operation is wrapped in a `scala.util.Try` so that any exception thrown by the
   * underlying Spark or Delta Lake write path is captured and returned as a `StorageWriteError`
   * rather than propagated to the caller.
   *
   * This class also implements the legacy [[BronzeWriter]] interface to preserve backward
-  * compatibility with test infrastructure written against the original trait. That interface will be
-  * removed once all consumers have migrated to [[BronzeLayerWriter]].
+  * compatibility with test infrastructure written against the original trait. That interface will
+  * be removed once all consumers have migrated to [[BronzeLayerWriter]].
   */
 final class DeltaBronzeWriter extends BronzeLayerWriter with BronzeWriter {
 
@@ -206,9 +206,9 @@ final class DeltaBronzeWriter extends BronzeLayerWriter with BronzeWriter {
       partitioned.save(path)
       WriteResult(
         recordsWritten = count,
-        path           = path,
-        partitionDate  = java.time.LocalDate.now(),
-        checksum       = ""
+        path = path,
+        partitionDate = java.time.LocalDate.now(),
+        checksum = ""
       )
     }.toEither.left.map(t => StorageWriteError(path, t.getMessage))
   }
@@ -216,8 +216,8 @@ final class DeltaBronzeWriter extends BronzeLayerWriter with BronzeWriter {
   /** Writes `data` to the Delta Lake Bronze path defined in `config`.
     *
     * Satisfies the legacy [[BronzeWriter]] contract for backward compatibility with existing test
-    * infrastructure. Delegates to [[write(DataFrame, SourceConfig, UUID)]] using a fresh random UUID
-    * and maps the result to a bare `Long`.
+    * infrastructure. Delegates to [[write(DataFrame, SourceConfig, UUID)]] using a fresh random
+    * UUID and maps the result to a bare `Long`.
     *
     * @param data
     *   The validated DataFrame to persist.
