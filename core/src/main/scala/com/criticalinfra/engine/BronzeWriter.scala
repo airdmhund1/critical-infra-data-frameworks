@@ -237,8 +237,8 @@ final class DeltaBronzeWriter extends BronzeLayerWriter with BronzeWriter {
 /** Factory for [[BronzeLayerWriter]] instances.
   *
   * Provides a `default` factory method that returns the production [[DeltaBronzeLayerWriter]].
-  * Callers that need a different implementation (e.g. test doubles) should supply their own instance
-  * to the engine constructor rather than using this factory.
+  * Callers that need a different implementation (e.g. test doubles) should supply their own
+  * instance to the engine constructor rather than using this factory.
   */
 object BronzeWriter {
 

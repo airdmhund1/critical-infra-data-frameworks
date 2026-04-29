@@ -32,20 +32,22 @@ import scala.util.Try
   *   - `_cidf_checksum` — integrity checksum placeholder; empty string until Branch 3.
   *
   * ==Partition columns added==
-  *   - `ingestion_date` — calendar date of the pipeline run (`LocalDate.now()`, format `YYYY-MM-DD`).
+  *   - `ingestion_date` — calendar date of the pipeline run (`LocalDate.now()`, format
+  *     `YYYY-MM-DD`).
   *   - `source_name` — same value as `_cidf_source_name`; used for partition pruning.
   *
   * ==Error handling==
-  * The entire write operation is wrapped in `scala.util.Try` and converted to `Either`. Any
-  * Spark or Delta Lake exception is captured and returned as `Left(StorageWriteError)`. Exceptions
-  * are never propagated to the caller.
+  * The entire write operation is wrapped in `scala.util.Try` and converted to `Either`. Any Spark
+  * or Delta Lake exception is captured and returned as `Left(StorageWriteError)`. Exceptions are
+  * never propagated to the caller.
   *
   * ==Thread safety==
   * Instances are stateless. A single instance may be shared across pipeline runs.
   */
 final class DeltaBronzeLayerWriter extends BronzeLayerWriter {
 
-  /** Enriches `data` with CIDF metadata and partition columns and writes it to the Delta Bronze path.
+  /** Enriches `data` with CIDF metadata and partition columns and writes it to the Delta Bronze
+    * path.
     *
     * The record count is computed on the enriched DataFrame (after metadata columns are added) so
     * that `WriteResult.recordsWritten` reflects the exact number of rows committed to storage. The
@@ -110,9 +112,9 @@ final class DeltaBronzeLayerWriter extends BronzeLayerWriter {
 
       WriteResult(
         recordsWritten = count,
-        path           = path,
-        partitionDate  = java.time.LocalDate.now(),
-        checksum       = "" // placeholder; SHA-256 computed in Branch 3
+        path = path,
+        partitionDate = java.time.LocalDate.now(),
+        checksum = "" // placeholder; SHA-256 computed in Branch 3
       )
     }.toEither.left.map(t => StorageWriteError(path, t.getMessage))
   }
