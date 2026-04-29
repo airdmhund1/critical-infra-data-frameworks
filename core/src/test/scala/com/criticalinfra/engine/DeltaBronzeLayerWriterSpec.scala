@@ -308,11 +308,95 @@ class DeltaBronzeLayerWriterSpec
 
       wr.path           shouldBe tempPath
       wr.recordsWritten shouldBe rowCount.toLong
-      wr.checksum       shouldBe "" // placeholder until Branch 3
+      wr.checksum       should not be empty // SHA-256 hex string; blank placeholder replaced in Branch 3
 
       // partitionDate must be today
       wr.partitionDate.isBefore(before) shouldBe false
       wr.partitionDate.isAfter(after)   shouldBe false
+    } finally {
+      deleteRecursively(new java.io.File(tempPath))
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test 7 — Checksum is a valid 64-character hex string and matches written column
+  // ---------------------------------------------------------------------------
+
+  "DeltaBronzeLayerWriter" should
+    "produce a 64-character lowercase hex SHA-256 checksum that matches the _cidf_checksum column" in {
+
+    val tempPath = Files.createTempDirectory("delta-writer-spec-7-").toAbsolutePath.toString
+    try {
+      val data   = makeDataFrame((1 to 5).map(i => (i, s"checksum-row-$i", i * 7.0)))
+      val config = testConfig(tempPath, "checksum-verify-source")
+      val writer = new DeltaBronzeLayerWriter
+
+      val result = writer.write(data, config, UUID.randomUUID())
+      result.isRight shouldBe true
+
+      val wr = result.toOption.get
+
+      // Checksum must be exactly 64 lowercase hex characters (SHA-256)
+      wr.checksum should fullyMatch regex "[0-9a-f]{64}"
+
+      // Every written row must carry the same checksum in the _cidf_checksum column
+      val ss      = spark
+      val written = ss.read.format("delta").load(tempPath)
+
+      import org.apache.spark.sql.functions.col
+      val distinctChecksums = written.select(col("_cidf_checksum")).distinct().collect()
+      distinctChecksums.length               shouldBe 1
+      distinctChecksums.head.getString(0)    shouldBe wr.checksum
+    } finally {
+      deleteRecursively(new java.io.File(tempPath))
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test 8 — Count mismatch above threshold returns Left(StorageWriteError)
+  // ---------------------------------------------------------------------------
+
+  "DeltaBronzeLayerWriter" should
+    "return Left(StorageWriteError) when mismatchThreshold forces a count mismatch failure" in {
+
+    val tempPath = Files.createTempDirectory("delta-writer-spec-8-").toAbsolutePath.toString
+    try {
+      val data = makeDataFrame(Seq((1, "mismatch-test", 1.0)))
+      val config = testConfig(tempPath, "mismatch-source")
+
+      // mismatchThreshold = -1L: math.abs(sourceCount - writtenCount) == 0, and 0 > -1L is true,
+      // so the validation always fails regardless of actual counts.
+      val writer = new DeltaBronzeLayerWriter(mismatchThreshold = -1L)
+
+      val result = writer.write(data, config, UUID.randomUUID())
+      result.isLeft shouldBe true
+
+      val storageWriteError = result.left.toOption.get
+      storageWriteError.cause.toLowerCase should include("count mismatch")
+    } finally {
+      deleteRecursively(new java.io.File(tempPath))
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test 9 — Count match with mismatchThreshold = 0 returns Right(WriteResult)
+  //          with correct recordsWritten
+  // ---------------------------------------------------------------------------
+
+  "DeltaBronzeLayerWriter" should
+    "return Right(WriteResult) with recordsWritten == 10 when mismatchThreshold = 0 and counts match" in {
+
+    val tempPath = Files.createTempDirectory("delta-writer-spec-9-").toAbsolutePath.toString
+    try {
+      val data   = makeDataFrame((1 to 10).map(i => (i, s"threshold-row-$i", i * 3.0)))
+      val config = testConfig(tempPath, "threshold-zero-source")
+      val writer = new DeltaBronzeLayerWriter(mismatchThreshold = 0L)
+
+      val result = writer.write(data, config, UUID.randomUUID())
+      result.isRight shouldBe true
+
+      val wr = result.toOption.get
+      wr.recordsWritten shouldBe 10L
     } finally {
       deleteRecursively(new java.io.File(tempPath))
     }
