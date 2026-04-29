@@ -56,10 +56,10 @@ final class IngestionEngine(
     * The pipeline is executed in exactly the following order:
     *
     *   1. Generates a fresh UUID (`runId`) that serves as the unique correlation key for this run
-    *      across audit logs, lineage records, and the returned [[IngestionResult]].
-    *      2. Looks up the [[SourceConnector]] for `config.connection.connectionType` in the
-    *      [[ConnectorRegistry]]. Returns `Left(ConfigurationError)` if no connector is registered.
-    *      3. Calls `connector.extract(config, spark)` to obtain the raw source
+    *      across audit logs, lineage records, and the returned [[IngestionResult]]. 2. Looks up the
+    *      [[SourceConnector]] for `config.connection.connectionType` in the [[ConnectorRegistry]].
+    *      Returns `Left(ConfigurationError)` if no connector is registered. 3. Calls
+    *      `connector.extract(config, spark)` to obtain the raw source
     *      [[org.apache.spark.sql.DataFrame]]. Returns `Left(ConnectorError)` if extraction fails.
     *      4. Counts the raw records (`recordsRead`) — this count reflects the number of records
     *      received from the source, before any quality filtering. 5. Applies the
@@ -97,11 +97,16 @@ final class IngestionEngine(
           recordsRead.asInstanceOf[AnyRef],
           config.metadata.sourceId
         )
-        validated   = validator.validate(rawDf)
+        validated = validator.validate(rawDf)
         writeResult <- bronzeWriter.write(validated, config, runId)
       } yield {
         val durationMs = System.currentTimeMillis() - startMs
-        val result     = IngestionResult.create(runId.toString, recordsRead, writeResult.recordsWritten, durationMs)
+        val result = IngestionResult.create(
+          runId.toString,
+          recordsRead,
+          writeResult.recordsWritten,
+          durationMs
+        )
         lineageRecorder.record(result.runId, config, result)
         logger.info(
           "Ingestion run complete — runId: {}, recordsRead: {}, recordsWritten: {}, durationMs: {}",

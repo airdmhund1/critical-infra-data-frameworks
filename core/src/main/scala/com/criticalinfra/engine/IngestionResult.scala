@@ -46,8 +46,9 @@ object IngestionResult {
   /** Creates an [[IngestionResult]] with the supplied `runId`.
     *
     * The `runId` is generated once per pipeline run by [[com.criticalinfra.engine.IngestionEngine]]
-    * and passed to both the [[BronzeLayerWriter]] and to this factory so that the correlation key is
-    * identical across audit metadata, lineage records, and the result value returned to the caller.
+    * and passed to both the [[BronzeLayerWriter]] and to this factory so that the correlation key
+    * is identical across audit metadata, lineage records, and the result value returned to the
+    * caller.
     *
     * @param runId
     *   Pre-generated UUID string for this pipeline run. Must be a valid UUID produced by
@@ -68,9 +69,9 @@ object IngestionResult {
       durationMs: Long
   ): IngestionResult =
     IngestionResult(
-      runId         = runId,
-      recordsRead   = recordsRead,
+      runId = runId,
+      recordsRead = recordsRead,
       recordsWritten = recordsWritten,
-      durationMs    = durationMs
+      durationMs = durationMs
     )
 }
