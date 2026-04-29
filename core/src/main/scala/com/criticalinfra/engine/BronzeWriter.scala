@@ -236,19 +236,19 @@ final class DeltaBronzeWriter extends BronzeLayerWriter with BronzeWriter {
 
 /** Factory for [[BronzeLayerWriter]] instances.
   *
-  * Provides a `default` factory method that returns the production [[DeltaBronzeWriter]]. Callers
-  * that need a different implementation (e.g. test doubles) should supply their own instance to the
-  * engine constructor rather than using this factory.
+  * Provides a `default` factory method that returns the production [[DeltaBronzeLayerWriter]].
+  * Callers that need a different implementation (e.g. test doubles) should supply their own instance
+  * to the engine constructor rather than using this factory.
   */
 object BronzeWriter {
 
-  /** Creates and returns a new [[DeltaBronzeWriter]], the default production Bronze writer.
+  /** Creates and returns a new [[DeltaBronzeLayerWriter]], the production Bronze writer.
     *
-    * The returned instance implements both [[BronzeLayerWriter]] (primary interface) and the legacy
-    * [[BronzeWriter]] trait for backward compatibility.
+    * The returned instance injects CIDF audit metadata columns and partition columns into every
+    * DataFrame before writing, and enforces `delta.appendOnly = true` after each write.
     *
     * @return
-    *   A new [[DeltaBronzeWriter]] instance typed as [[BronzeLayerWriter]].
+    *   A new [[DeltaBronzeLayerWriter]] instance typed as [[BronzeLayerWriter]].
     */
-  def default: BronzeLayerWriter = new DeltaBronzeWriter
+  def default: BronzeLayerWriter = new DeltaBronzeLayerWriter
 }
