@@ -76,15 +76,13 @@ final class DeltaBronzeLayerWriter(mismatchThreshold: Long = 0L) extends BronzeL
     * path.
     *
     * ==Order of operations==
-    *   1. `computeChecksum(data)` — SHA-256 of raw rows, before any enrichment.
-    *   2. `data.count()` — source record count, before enrichment.
-    *   3. Inject four `_cidf_*` metadata columns.
-    *   4. Add two partition columns (`ingestion_date`, `source_name`).
-    *   5. `partitioned.count()` — written record count, after enrichment.
-    *   6. Count mismatch check — throws if `|sourceCount - writtenCount| > mismatchThreshold`.
-    *   7. Delta append write, partitioned by `ingestion_date` and `source_name`.
-    *   8. `ALTER TABLE … SET TBLPROPERTIES (delta.appendOnly = true)` — idempotent.
-    *   9. Return `Right(WriteResult)`.
+    *   1. `computeChecksum(data)` — SHA-256 of raw rows, before any enrichment. 2. `data.count()` —
+    *      source record count, before enrichment. 3. Inject four `_cidf_*` metadata columns. 4. Add
+    *      two partition columns (`ingestion_date`, `source_name`). 5. `partitioned.count()` —
+    *      written record count, after enrichment. 6. Count mismatch check — throws if `|sourceCount
+    *      \- writtenCount| > mismatchThreshold`. 7. Delta append write, partitioned by
+    *      `ingestion_date` and `source_name`. 8. `ALTER TABLE … SET TBLPROPERTIES (delta.appendOnly
+    *      \= true)` — idempotent. 9. Return `Right(WriteResult)`.
     *
     * @param data
     *   The validated DataFrame to persist. Must not be null.
@@ -167,9 +165,9 @@ final class DeltaBronzeLayerWriter(mismatchThreshold: Long = 0L) extends BronzeL
       // -----------------------------------------------------------------------
       WriteResult(
         recordsWritten = writtenCount,
-        path           = path,
-        partitionDate  = java.time.LocalDate.now(),
-        checksum       = checksum
+        path = path,
+        partitionDate = java.time.LocalDate.now(),
+        checksum = checksum
       )
     }.toEither.left.map(t => StorageWriteError(path, t.getMessage))
   }
