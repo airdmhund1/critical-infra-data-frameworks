@@ -112,17 +112,25 @@ class IngestionEngineSpec extends AnyFlatSpec with Matchers with BeforeAndAfterA
       throw new RuntimeException("boom")
   }
 
-  // -- Stub BronzeWriters ------------------------------------------------------
+  // -- Stub BronzeLayerWriters -------------------------------------------------
 
-  /** Always returns `Right(count)`. */
-  private class SucceedingBronzeWriter(count: Long) extends BronzeWriter {
-    def write(data: DataFrame, config: SourceConfig): Either[StorageWriteError, Long] =
-      Right(count)
+  /** Always returns `Right(WriteResult(count, ...))`. */
+  private class SucceedingBronzeWriter(count: Long) extends BronzeLayerWriter {
+    def write(
+        data: DataFrame,
+        config: SourceConfig,
+        runId: java.util.UUID
+    ): Either[StorageWriteError, WriteResult] =
+      Right(WriteResult(count, "", java.time.LocalDate.now(), ""))
   }
 
   /** Always returns `Left(error)`. */
-  private class FailingBronzeWriter(error: StorageWriteError) extends BronzeWriter {
-    def write(data: DataFrame, config: SourceConfig): Either[StorageWriteError, Long] =
+  private class FailingBronzeWriter(error: StorageWriteError) extends BronzeLayerWriter {
+    def write(
+        data: DataFrame,
+        config: SourceConfig,
+        runId: java.util.UUID
+    ): Either[StorageWriteError, WriteResult] =
       Left(error)
   }
 
