@@ -7,8 +7,8 @@ import org.apache.spark.sql.SparkSession
 // IngestionEngine — configuration-driven ingestion pipeline orchestrator
 //
 // Reads a fully resolved SourceConfig at runtime and executes the standard
-// five-step pipeline: connector lookup → extraction → quality validation →
-// Bronze write → lineage recording.
+// six-step pipeline: connector lookup → extraction → quality validation →
+// Bronze write → lineage recording → audit logging.
 //
 // Every failure mode is returned as a typed Left[IngestionError] so that
 // callers can handle errors through exhaustive pattern matching without
@@ -18,10 +18,10 @@ import org.apache.spark.sql.SparkSession
 // =============================================================================
 
 /** Configuration-driven ingestion pipeline that reads a [[com.criticalinfra.config.SourceConfig]]
-  * at runtime and executes the five canonical pipeline steps: connector lookup, data extraction,
-  * quality validation, Bronze-layer write, and lineage recording.
+  * at runtime and executes the six canonical pipeline steps: connector lookup, data extraction,
+  * quality validation, Bronze-layer write, lineage recording, and audit logging.
   *
-  * All four collaborators are supplied by the caller and default to their Phase 1 no-op or default
+  * All five collaborators are supplied by the caller and default to their Phase 1 no-op or default
   * production implementations, enabling straightforward substitution of test doubles without
   * modifying the engine.
   *
@@ -41,12 +41,17 @@ import org.apache.spark.sql.SparkSession
   * @param bronzeWriter
   *   Writer that persists the validated DataFrame to the Bronze lakehouse layer. Defaults to the
   *   production [[DeltaBronzeWriter]] obtained via [[BronzeWriter.default]].
+  * @param auditLogger
+  *   Audit event logger invoked at the end of every pipeline run — success or failure. Defaults to
+  *   [[NoOpAuditEventLogger]], which discards all events. A logger failure is swallowed and never
+  *   affects the pipeline result.
   */
 final class IngestionEngine(
     registry: ConnectorRegistry,
     validator: DataQualityValidator = PassThroughDataQualityValidator,
     lineageRecorder: LineageRecorder = NoOpLineageRecorder,
-    bronzeWriter: BronzeLayerWriter = BronzeWriter.default
+    bronzeWriter: BronzeLayerWriter = BronzeWriter.default,
+    auditLogger: AuditEventLogger = NoOpAuditEventLogger
 ) {
 
   private val logger = org.slf4j.LoggerFactory.getLogger(classOf[IngestionEngine])
@@ -66,12 +71,15 @@ final class IngestionEngine(
     *      [[DataQualityValidator]] to the raw DataFrame, producing a validated DataFrame that may
     *      contain fewer records. 6. Calls `bronzeWriter.write(validated, config, runId)` to persist
     *      the validated DataFrame. Returns `Left(StorageWriteError)` if the write fails. 7. Creates
-    *      an [[IngestionResult]] using the same `runId`, invokes the [[LineageRecorder]], and
-    *      returns the result in `Right`.
+    *      an [[IngestionResult]] using the same `runId`, invokes the [[LineageRecorder]], invokes
+    *      the [[AuditEventLogger]] with a [[AuditStatus.Success]] event, and returns the result in
+    *      `Right`. 8. On any pipeline failure, invokes the [[AuditEventLogger]] with a
+    *      [[AuditStatus.Failure]] event before returning the `Left`.
     *
     * Any unexpected `Throwable` not handled by the collaborator contracts is caught at the
-    * outermost boundary, logged at ERROR level, and returned as `Left(UnexpectedError)`. The
-    * original `Throwable` is preserved in the error for diagnostic purposes.
+    * outermost boundary, logged at ERROR level, an audit failure event is emitted, and the error
+    * is returned as `Left(UnexpectedError)`. The original `Throwable` is preserved in the error
+    * for diagnostic purposes.
     *
     * @param config
     *   Fully resolved pipeline configuration. All credential references must already have been
@@ -83,8 +91,9 @@ final class IngestionEngine(
     *   The specific subtype of [[IngestionError]] identifies which step failed.
     */
   def run(config: SourceConfig, spark: SparkSession): Either[IngestionError, IngestionResult] = {
-    val startMs = System.currentTimeMillis()
-    val runId   = java.util.UUID.randomUUID()
+    val startMs      = System.currentTimeMillis()
+    val startInstant = java.time.Instant.now()
+    val runId        = java.util.UUID.randomUUID()
     logger.info("Starting ingestion run for source: {}", config.metadata.sourceId)
 
     try {
@@ -108,6 +117,20 @@ final class IngestionEngine(
           durationMs
         )
         lineageRecorder.record(result.runId, config, result)
+        logAudit(AuditEvent(
+          runId           = result.runId,
+          sourceName      = config.metadata.sourceName,
+          sourceType      = config.connection.connectionType.toString,
+          pipelineStartTs = startInstant,
+          pipelineEndTs   = java.time.Instant.now(),
+          recordsRead     = result.recordsRead,
+          recordsWritten  = result.recordsWritten,
+          quarantineCount = result.recordsRead - result.recordsWritten,
+          bronzePath      = writeResult.path,
+          checksum        = writeResult.checksum,
+          status          = AuditStatus.Success,
+          errorMessage    = None
+        ))
         logger.info(
           "Ingestion run complete — runId: {}, recordsRead: {}, recordsWritten: {}, durationMs: {}",
           result.runId,
@@ -120,11 +143,40 @@ final class IngestionEngine(
 
       pipeline match {
         case Right(result) => Right(result)
-        case Left(err)     => logAndReturn(err)
+        case Left(err)     =>
+          logAudit(AuditEvent(
+            runId           = runId.toString,
+            sourceName      = config.metadata.sourceName,
+            sourceType      = config.connection.connectionType.toString,
+            pipelineStartTs = startInstant,
+            pipelineEndTs   = java.time.Instant.now(),
+            recordsRead     = 0L,
+            recordsWritten  = 0L,
+            quarantineCount = 0L,
+            bronzePath      = "",
+            checksum        = "",
+            status          = AuditStatus.Failure,
+            errorMessage    = Some(errorMessageFrom(err))
+          ))
+          logAndReturn(err)
       }
     }
     catch {
       case t: Throwable =>
+        logAudit(AuditEvent(
+          runId           = runId.toString,
+          sourceName      = config.metadata.sourceName,
+          sourceType      = config.connection.connectionType.toString,
+          pipelineStartTs = startInstant,
+          pipelineEndTs   = java.time.Instant.now(),
+          recordsRead     = 0L,
+          recordsWritten  = 0L,
+          quarantineCount = 0L,
+          bronzePath      = "",
+          checksum        = "",
+          status          = AuditStatus.Failure,
+          errorMessage    = Some(t.getMessage)
+        ))
         logger.error(
           "Unexpected error during ingestion run for source: {}",
           config.metadata.sourceId,
@@ -153,5 +205,32 @@ final class IngestionEngine(
         logger.error("Unexpected error — message: {}", message, throwable.orNull)
     }
     Left(error)
+  }
+
+  /** Invokes the [[AuditEventLogger]] with the supplied event.
+    *
+    * If the logger returns `Left`, the error is logged at WARN level and swallowed. Audit
+    * failures must never affect the pipeline result.
+    *
+    * @param event
+    *   The completed pipeline run record to persist.
+    */
+  private def logAudit(event: AuditEvent): Unit =
+    auditLogger.log(event).left.foreach { err =>
+      logger.warn("Audit log failed for run {}: {}", event.runId, err)
+    }
+
+  /** Produces a human-readable error message string from an [[IngestionError]].
+    *
+    * @param err
+    *   The pipeline error to describe.
+    * @return
+    *   A descriptive string suitable for storage in the `errorMessage` field of an [[AuditEvent]].
+    */
+  private def errorMessageFrom(err: IngestionError): String = err match {
+    case ConfigurationError(field, message) => s"Configuration error — $field: $message"
+    case ConnectorError(source, cause)      => s"Connector error — $source: $cause"
+    case StorageWriteError(path, cause)     => s"Storage write error — $path: $cause"
+    case UnexpectedError(message, _)        => s"Unexpected error: $message"
   }
 }
