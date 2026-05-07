@@ -41,9 +41,9 @@ trait AuditEventLogger {
   * All arguments to `log` are accepted and immediately discarded. No external system is contacted
   * and no state is written.
   *
-  * '''Phase 1 stub.''' This object is the default logger available in v0.1.0. Production deployments
-  * replace it with [[DeltaAuditEventLogger]], which persists events to a Delta Lake append-only
-  * audit table.
+  * '''Phase 1 stub.''' This object is the default logger available in v0.1.0. Production
+  * deployments replace it with [[DeltaAuditEventLogger]], which persists events to a Delta Lake
+  * append-only audit table.
   */
 object NoOpAuditEventLogger extends AuditEventLogger {
 
@@ -80,8 +80,8 @@ object NoOpAuditEventLogger extends AuditEventLogger {
   * across pipeline runs provided the `SparkSession` is thread-safe for the target deployment.
   *
   * @param auditPath
-  *   URI or file-system path of the Delta Lake audit table. The table is created on the first
-  *   `log` call if it does not already exist.
+  *   URI or file-system path of the Delta Lake audit table. The table is created on the first `log`
+  *   call if it does not already exist.
   * @param spark
   *   Active [[SparkSession]] used to create DataFrames and execute SQL. Injected for testability.
   */
@@ -91,20 +91,22 @@ final class DeltaAuditEventLogger(auditPath: String, spark: SparkSession) extend
     *
     * All timestamp and status fields are stored as strings; `error_message` is nullable.
     */
-  private val schema: StructType = StructType(Seq(
-    StructField("run_id",            StringType, nullable = false),
-    StructField("source_name",       StringType, nullable = false),
-    StructField("source_type",       StringType, nullable = false),
-    StructField("pipeline_start_ts", StringType, nullable = false),
-    StructField("pipeline_end_ts",   StringType, nullable = false),
-    StructField("records_read",      LongType,   nullable = false),
-    StructField("records_written",   LongType,   nullable = false),
-    StructField("quarantine_count",  LongType,   nullable = false),
-    StructField("bronze_path",       StringType, nullable = false),
-    StructField("checksum",          StringType, nullable = false),
-    StructField("status",            StringType, nullable = false),
-    StructField("error_message",     StringType, nullable = true)
-  ))
+  private val schema: StructType = StructType(
+    Seq(
+      StructField("run_id", StringType, nullable = false),
+      StructField("source_name", StringType, nullable = false),
+      StructField("source_type", StringType, nullable = false),
+      StructField("pipeline_start_ts", StringType, nullable = false),
+      StructField("pipeline_end_ts", StringType, nullable = false),
+      StructField("records_read", LongType, nullable = false),
+      StructField("records_written", LongType, nullable = false),
+      StructField("quarantine_count", LongType, nullable = false),
+      StructField("bronze_path", StringType, nullable = false),
+      StructField("checksum", StringType, nullable = false),
+      StructField("status", StringType, nullable = false),
+      StructField("error_message", StringType, nullable = true)
+    )
+  )
 
   /** Serialises an [[AuditStatus]] value to its canonical uppercase string representation.
     *
@@ -122,15 +124,15 @@ final class DeltaAuditEventLogger(auditPath: String, spark: SparkSession) extend
   /** Persists the [[AuditEvent]] as a single row to the Delta Lake audit table at `auditPath`.
     *
     * ==Order of operations==
-    *   1. Builds a single-row `DataFrame` from the event using the fixed [[schema]].
-    *   2. Appends the row to the Delta table at `auditPath` (creates the table on first write).
-    *   3. Sets `delta.appendOnly = true` via `ALTER TABLE … SET TBLPROPERTIES` (idempotent).
+    *   1. Builds a single-row `DataFrame` from the event using the fixed [[schema]]. 2. Appends the
+    *      row to the Delta table at `auditPath` (creates the table on first write). 3. Sets
+    *      `delta.appendOnly = true` via `ALTER TABLE … SET TBLPROPERTIES` (idempotent).
     *
     * @param event
     *   The completed pipeline run record to persist.
     * @return
-    *   `Right(())` on success, or `Left(AuditLogError.WriteError(auditPath, cause))` on any
-    *   Spark or Delta Lake failure.
+    *   `Right(())` on success, or `Left(AuditLogError.WriteError(auditPath, cause))` on any Spark
+    *   or Delta Lake failure.
     */
   def log(event: AuditEvent): Either[AuditLogError, Unit] =
     Try {
