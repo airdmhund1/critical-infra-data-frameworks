@@ -77,9 +77,9 @@ final class IngestionEngine(
     *      [[AuditStatus.Failure]] event before returning the `Left`.
     *
     * Any unexpected `Throwable` not handled by the collaborator contracts is caught at the
-    * outermost boundary, logged at ERROR level, an audit failure event is emitted, and the error
-    * is returned as `Left(UnexpectedError)`. The original `Throwable` is preserved in the error
-    * for diagnostic purposes.
+    * outermost boundary, logged at ERROR level, an audit failure event is emitted, and the error is
+    * returned as `Left(UnexpectedError)`. The original `Throwable` is preserved in the error for
+    * diagnostic purposes.
     *
     * @param config
     *   Fully resolved pipeline configuration. All credential references must already have been
@@ -117,20 +117,22 @@ final class IngestionEngine(
           durationMs
         )
         lineageRecorder.record(result.runId, config, result)
-        logAudit(AuditEvent(
-          runId           = result.runId,
-          sourceName      = config.metadata.sourceName,
-          sourceType      = config.connection.connectionType.toString,
-          pipelineStartTs = startInstant,
-          pipelineEndTs   = java.time.Instant.now(),
-          recordsRead     = result.recordsRead,
-          recordsWritten  = result.recordsWritten,
-          quarantineCount = result.recordsRead - result.recordsWritten,
-          bronzePath      = writeResult.path,
-          checksum        = writeResult.checksum,
-          status          = AuditStatus.Success,
-          errorMessage    = None
-        ))
+        logAudit(
+          AuditEvent(
+            runId = result.runId,
+            sourceName = config.metadata.sourceName,
+            sourceType = config.connection.connectionType.toString,
+            pipelineStartTs = startInstant,
+            pipelineEndTs = java.time.Instant.now(),
+            recordsRead = result.recordsRead,
+            recordsWritten = result.recordsWritten,
+            quarantineCount = result.recordsRead - result.recordsWritten,
+            bronzePath = writeResult.path,
+            checksum = writeResult.checksum,
+            status = AuditStatus.Success,
+            errorMessage = None
+          )
+        )
         logger.info(
           "Ingestion run complete — runId: {}, recordsRead: {}, recordsWritten: {}, durationMs: {}",
           result.runId,
@@ -143,40 +145,44 @@ final class IngestionEngine(
 
       pipeline match {
         case Right(result) => Right(result)
-        case Left(err)     =>
-          logAudit(AuditEvent(
-            runId           = runId.toString,
-            sourceName      = config.metadata.sourceName,
-            sourceType      = config.connection.connectionType.toString,
-            pipelineStartTs = startInstant,
-            pipelineEndTs   = java.time.Instant.now(),
-            recordsRead     = 0L,
-            recordsWritten  = 0L,
-            quarantineCount = 0L,
-            bronzePath      = "",
-            checksum        = "",
-            status          = AuditStatus.Failure,
-            errorMessage    = Some(errorMessageFrom(err))
-          ))
+        case Left(err) =>
+          logAudit(
+            AuditEvent(
+              runId = runId.toString,
+              sourceName = config.metadata.sourceName,
+              sourceType = config.connection.connectionType.toString,
+              pipelineStartTs = startInstant,
+              pipelineEndTs = java.time.Instant.now(),
+              recordsRead = 0L,
+              recordsWritten = 0L,
+              quarantineCount = 0L,
+              bronzePath = "",
+              checksum = "",
+              status = AuditStatus.Failure,
+              errorMessage = Some(errorMessageFrom(err))
+            )
+          )
           logAndReturn(err)
       }
     }
     catch {
       case t: Throwable =>
-        logAudit(AuditEvent(
-          runId           = runId.toString,
-          sourceName      = config.metadata.sourceName,
-          sourceType      = config.connection.connectionType.toString,
-          pipelineStartTs = startInstant,
-          pipelineEndTs   = java.time.Instant.now(),
-          recordsRead     = 0L,
-          recordsWritten  = 0L,
-          quarantineCount = 0L,
-          bronzePath      = "",
-          checksum        = "",
-          status          = AuditStatus.Failure,
-          errorMessage    = Some(t.getMessage)
-        ))
+        logAudit(
+          AuditEvent(
+            runId = runId.toString,
+            sourceName = config.metadata.sourceName,
+            sourceType = config.connection.connectionType.toString,
+            pipelineStartTs = startInstant,
+            pipelineEndTs = java.time.Instant.now(),
+            recordsRead = 0L,
+            recordsWritten = 0L,
+            quarantineCount = 0L,
+            bronzePath = "",
+            checksum = "",
+            status = AuditStatus.Failure,
+            errorMessage = Some(t.getMessage)
+          )
+        )
         logger.error(
           "Unexpected error during ingestion run for source: {}",
           config.metadata.sourceId,
@@ -209,8 +215,8 @@ final class IngestionEngine(
 
   /** Invokes the [[AuditEventLogger]] with the supplied event.
     *
-    * If the logger returns `Left`, the error is logged at WARN level and swallowed. Audit
-    * failures must never affect the pipeline result.
+    * If the logger returns `Left`, the error is logged at WARN level and swallowed. Audit failures
+    * must never affect the pipeline result.
     *
     * @param event
     *   The completed pipeline run record to persist.
