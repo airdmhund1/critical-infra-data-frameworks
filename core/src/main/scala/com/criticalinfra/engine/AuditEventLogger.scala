@@ -1,7 +1,7 @@
 package com.criticalinfra.engine
 
-import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.{Row, SparkSession}
 
 import scala.util.Try
 
