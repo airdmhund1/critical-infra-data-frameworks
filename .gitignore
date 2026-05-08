@@ -53,9 +53,6 @@ __pycache__/
 .venv/
 venv/
 
-# Docker
-.dockerignore
-
 # Temp files
 *.tmp
 *.swp
