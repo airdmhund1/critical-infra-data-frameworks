@@ -1,0 +1,66 @@
+# =============================================================================
+# .dockerignore — keep the Docker build context lean
+# =============================================================================
+# Anything matched here is NOT sent to the Docker daemon. This both speeds
+# up builds (smaller upload) and prevents accidental inclusion of secrets,
+# build outputs, or local IDE state in image layers.
+# =============================================================================
+
+# ---- sbt build outputs (every level) ----
+target/
+**/target/
+project/target/
+project/project/
+
+# ---- Git metadata ----
+.git/
+.gitignore
+.gitattributes
+
+# ---- Documentation (not needed inside the image) ----
+*.md
+docs/
+
+# ---- Tests and integration test artefacts ----
+tests/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+
+# ---- Examples (configs are mounted at runtime, never baked in) ----
+examples/
+
+# ---- Local data and ad-hoc scratch dirs ----
+spark-warehouse/
+monitoring/grafana-data/
+monitoring/prometheus-data/
+*.log
+logs/
+
+# ---- IDE / editor state ----
+.idea/
+.vscode/
+.metals/
+.bloop/
+*.iml
+.ensime
+.ensime_cache/
+
+# ---- macOS / OS clutter ----
+.DS_Store
+Thumbs.db
+
+# ---- CI / GitHub-specific files (not needed at build time) ----
+.github/
+
+# ---- Docker artefacts themselves ----
+deployment/docker/Dockerfile
+.dockerignore
+
+# ---- Misc local config that must never end up in an image ----
+.env
+.env.*
+*.pem
+*.key
+*.crt
+secrets/
