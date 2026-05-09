@@ -27,17 +27,17 @@ metadata:
 
 connection:
   type: "jdbc"                                      # Selects JDBC extraction path in the connector registry
-  credentialsRef: "vault://secret/prod/pg-meter-db/jdbc-credentials"
+  credentialsRef: "vault://secret/dev/pg-meter-db/jdbc-credentials"  # dev path seeded by vault-init.sh; for production replace with 'vault://secret/prod/pg-meter-db/jdbc-credentials'
   # credentialsRef: Vault path resolved at runtime to username + password.
   # Never put literal credentials here — this file is safe to commit.
   # For verify-full SSL mode the sslrootcert JDBC property must also be
   # supplied; pass it via the credential reference entry in Vault so it is
   # resolved at runtime alongside the username and password.
-  host: "pg-meter-ops.grid.example.com"
+  host: "postgres"                                  # docker-compose: use service name 'postgres'; for production replace with real FQDN
   port: 5432                                        # Standard PostgreSQL listener port
-  database: "meter_ops"                             # PostgreSQL database name on the target server
+  database: "cidf_dev"                              # docker-compose local dev database; for production replace with 'meter_ops'
   jdbcDriver: "postgres"                            # Selects PostgresJdbcConnector; constructs jdbc:postgresql://host:port/database URL
-  sslMode: "verify-full"                            # Recommended production setting: encrypted + CA validated + hostname verified.
+  sslMode: "disable"                                # docker-compose local dev only — never use 'disable' in production
   # sslMode valid values: disable | require | verify-ca | verify-full
   #   disable     — plaintext only; never appropriate in regulated environments.
   #   require     — encrypted; server certificate is NOT validated (default connector behaviour).
@@ -66,7 +66,7 @@ ingestion:
   # The engine filters new records using WHERE recorded_at > :lastWatermark.
   # Ensure the column carries a non-null constraint and a covering index to
   # prevent full-table scans on every 15-minute run.
-  watermarkStorage: "s3://pipeline-state/watermarks/energy-pg-meter-readings-001"
+  watermarkStorage: "s3://bronze/watermarks/energy-pg-meter-readings-001"  # docker-compose: watermark stored in MinIO
   # watermarkStorage: URI where the engine persists MAX(recorded_at) after each
   # successful Bronze write. A failed write leaves the watermark unchanged so
   # the next run re-covers the window without data loss.
@@ -88,7 +88,7 @@ qualityRules:
 
 quarantine:
   enabled: true                                     # Failed records are written to quarantine, never silently dropped
-  path: "s3://datalake-quarantine/energy/pg-meter-readings/"
+  path: "s3://bronze/quarantine/pg-meter-readings/"  # docker-compose: uses same MinIO bucket with quarantine/ prefix
   # path: Must differ from storage.path. Failed records land here with
   # structured error codes attached so they can be reviewed and replayed
   # without re-running the full extraction.
@@ -98,7 +98,7 @@ quarantine:
 storage:
   layer: "bronze"                                   # v0.1.0 engine writes to Bronze only; Silver/Gold are downstream
   format: "delta"                                   # Delta Lake: ACID transactions + time travel for audit compliance
-  path: "s3://datalake-bronze/energy/pg-meter-readings/"
+  path: "s3://bronze/energy/pg-meter-readings/"     # docker-compose: MinIO 'bronze' bucket; for production replace with real S3 path
   partitionBy:
     - "reading_date"                                # Partition by date enables efficient time-range queries and retention sweeps
     - "meter_class"                                 # Secondary partition — values: residential, commercial, industrial
