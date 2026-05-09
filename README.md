@@ -14,6 +14,22 @@ These frameworks address a documented challenge: organizations in regulated sect
 
 The reference architectures in this repository are generalized from patterns designed, built, and validated in production across three critical-infrastructure sectors, achieving documented improvements in processing performance, system reliability, and operational efficiency.
 
+## Quick Start
+
+Get the local development environment running in 15 minutes — no Spark or Java installation required.
+
+**Prerequisites:** Docker Engine 24+ (includes Compose v2), Git.
+
+```bash
+git clone https://github.com/airdmhund1/critical-infra-data-frameworks.git
+cd critical-infra-data-frameworks
+cp deployment/docker/.env.example deployment/docker/.env
+# Edit deployment/docker/.env — replace all `replace-me` placeholders
+docker compose -f deployment/docker/docker-compose.yml --env-file deployment/docker/.env up -d
+```
+
+See [docs/getting-started.md](docs/getting-started.md) for the full step-by-step guide including Vault credential seeding, MinIO bucket creation, and running the smoke test.
+
 ## Problem Statement
 
 Critical-infrastructure operators face a common set of data-engineering challenges:
