@@ -1,0 +1,169 @@
+# =============================================================================
+# Critical Infrastructure Data Frameworks — local development stack
+# =============================================================================
+#
+# Four-service local development environment:
+#
+#   ingestion-engine  — the Spark/Scala fat-JAR container (built from
+#                       deployment/docker/Dockerfile). One-shot job: starts,
+#                       runs a configured pipeline, exits.
+#   postgres          — local test source database (JDBC connector target).
+#   minio             — S3-compatible object store; stands in for the
+#                       Bronze-layer lakehouse bucket in local dev.
+#   vault             — HashiCorp Vault in `-dev` mode; the engine's
+#                       VaultSecretsResolver resolves `vault://...` URIs
+#                       declared in YAML configs against this instance.
+#
+# All credentials are sourced from environment variables (see
+# `.env.example` in this directory). NO real credentials live in this file.
+# Developers copy `.env.example` to `.env` (gitignored) and fill in values.
+#
+# NOTE on the `version:` key: Compose Specification (Compose v2 / `docker
+# compose`) ignores the top-level `version` field and emits a warning if
+# present. We intentionally OMIT it. If you are still on legacy
+# docker-compose v1, upgrade.
+#
+# Bring the stack up:
+#   cp deployment/docker/.env.example deployment/docker/.env
+#   # edit deployment/docker/.env, then:
+#   docker compose -f deployment/docker/docker-compose.yml --env-file deployment/docker/.env up -d
+#
+# Validate this file's syntax:
+#   docker compose -f deployment/docker/docker-compose.yml config --quiet
+#
+# =============================================================================
+
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # ingestion-engine — Spark/Scala fat JAR (one-shot job)
+  # ---------------------------------------------------------------------------
+  # This service is a BATCH job, not a long-running daemon. It is started
+  # on demand (`docker compose run ingestion-engine ...`) or as part of an
+  # orchestrator-driven workflow. The container exits when the pipeline
+  # finishes. Therefore:
+  #
+  #   * `restart: "no"`  — never auto-restart on exit; that would re-run
+  #                        the pipeline on every clean exit.
+  #   * NO healthcheck   — there is no "ready" state for a batch job; it
+  #                        is either running or done.
+  #
+  # Until a Main class is wired (tracked in a later issue), invoking
+  # `java -jar /app/engine.jar` on this image will fail with "no main
+  # manifest attribute". This is expected for v0.1.0-SNAPSHOT.
+  # ---------------------------------------------------------------------------
+  ingestion-engine:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    image: cidf/ingestion-engine:0.1.0-SNAPSHOT
+    container_name: cidf-ingestion-engine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    environment:
+      # --- Vault (dev-mode root token; see VaultSecretsResolver) ---
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "${VAULT_DEV_ROOT_TOKEN}"
+      # --- S3A client → MinIO (Bronze-layer storage in dev) ---
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
+      AWS_S3_ENDPOINT: "http://minio:9000"
+      AWS_S3_PATH_STYLE_ACCESS: "true"
+    volumes:
+      # Configs are mounted read-only at runtime — never baked into the image.
+      - ../../examples/configs:/app/configs:ro
+
+  # ---------------------------------------------------------------------------
+  # postgres — local test source (JDBC connector target)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: cidf-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # minio — S3-compatible object store (Bronze-layer storage in dev)
+  # ---------------------------------------------------------------------------
+  # Pinned to a specific RELEASE tag rather than `latest` for build
+  # reproducibility. Console is exposed on 9001 for manual inspection.
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-08-17T01-24-54Z
+    container_name: cidf-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # vault — HashiCorp Vault (dev mode)
+  # ---------------------------------------------------------------------------
+  # Dev mode is INSECURE by design — in-memory storage, unsealed at start,
+  # predictable root token. This is acceptable ONLY for local development
+  # against this compose stack. Production deployments use a properly
+  # initialized Vault cluster with AppRole auth (see VaultSecretsResolver).
+  #
+  # `IPC_LOCK` is required by Vault even in dev mode to prevent memory
+  # from being swapped to disk (defence-in-depth against secret leakage).
+  # ---------------------------------------------------------------------------
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: cidf-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    command: server -dev
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "${VAULT_DEV_ROOT_TOKEN}"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: "http://0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8200/v1/sys/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
+# -----------------------------------------------------------------------------
+# Named volumes — persist state across `docker compose down` (but not
+# `down -v`, which removes them). Keeps Postgres data and MinIO buckets
+# stable between local dev sessions.
+# -----------------------------------------------------------------------------
+volumes:
+  postgres-data:
+    name: cidf-postgres-data
+  minio-data:
+    name: cidf-minio-data
