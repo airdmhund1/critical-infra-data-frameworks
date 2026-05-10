@@ -5,7 +5,7 @@ This document records the architectural decisions made during Phase 1 of the Cri
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-001](#adr-001-configuration-driven-ingestion-pattern) | Configuration-Driven Ingestion Pattern | Accepted |
-| [ADR-002](#adr-002-lakehouse-storage-architecture-bronzesilverold) | Lakehouse Storage Architecture (Bronze/Silver/Gold) | Accepted |
+| [ADR-002](#adr-002-lakehouse-storage-architecture-bronzesilvergold) | Lakehouse Storage Architecture (Bronze/Silver/Gold) | Accepted |
 | [ADR-003](#adr-003-compliance-grade-observability) | Compliance-Grade Observability | Accepted |
 | [ADR-004](#adr-004-watermark-based-incremental-extraction) | Watermark-Based Incremental Extraction | Accepted |
 | [ADR-005](#adr-005-explicit-schema-modes-for-file-based-source-connectors) | Explicit Schema Modes for File-Based Source Connectors | Accepted |
