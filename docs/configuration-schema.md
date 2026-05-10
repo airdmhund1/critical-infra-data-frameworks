@@ -344,3 +344,481 @@ audit:
 - `docs/architecture-decisions.md` — ADR-001 explaining the configuration-driven design decision
 - `docs/compliance-mapping.md` — how individual fields map to Dodd-Frank, NERC CIP, NIST CSF, and NCS 2023 requirements
 - `examples/configs/` — complete worked examples for each supported sector
+
+---
+
+## Annotated Examples
+
+These two examples show a complete pipeline configuration for each sector. Every field carries an inline comment explaining why it is set to that value — not just what it does.
+
+---
+
+### Example 1 — Financial Services: Oracle JDBC incremental extraction (Dodd-Frank)
+
+```yaml
+# Source:      Trade Execution Records — Oracle
+# Sector:      Financial Services
+# Description: Ingests trade execution records from the firm's Oracle trading
+#              database (TRADEDB) using watermark-based incremental extraction
+#              on TRADE_TIMESTAMP. Runs every four hours during market hours.
+#              Raw records land in the Bronze Delta table partitioned by trade
+#              date and asset class. Write-once enforcement on the Bronze path
+#              supports Dodd-Frank immutable recordkeeping obligations.
+# Compliance:  Dodd-Frank Act (17 CFR Part 45), NIST CSF 2.0, NCS 2023
+#
+# Driver note: ojdbc11.jar must be supplied by the operator; it is not bundled
+#              with this framework (OTN License). See docs/connectors/oracle-connector.md.
+
+schemaVersion: "1.0"   # The only value the v0.1.0 engine accepts; a different value
+                        # causes the config loader to return a SchemaValidationError
+                        # before any extraction begins.
+
+metadata:
+  sourceId: "fs-oracle-trades-001"          # Primary key in the lineage catalog; must be globally
+                                            # unique across all sources. Lowercase, hyphens only —
+                                            # this value is used in S3 path construction and metric
+                                            # labels, so special characters will break downstream tools.
+  sourceName: "Trade Execution Records — Oracle"  # Shown in Grafana dashboards and alert notifications;
+                                                  # descriptive enough that an on-call engineer
+                                                  # understands the source without opening this file.
+  sector: "financial-services"              # Activates Dodd-Frank compliance enforcement paths in the
+                                            # engine. Setting "energy" here would apply NERC CIP
+                                            # enforcement instead, which has different retention
+                                            # and audit rules. Must match the actual regulatory scope.
+  owner: "trade-data-engineering"           # Team that receives failure alerts and is attributed in
+                                            # lineage records. A wrong value here means the wrong
+                                            # team gets paged at 2am.
+  environment: "prod"                       # Triggers full compliance enforcement: 7-year retention
+                                            # defaults, strict schema validation, and immediate
+                                            # on-call alerting. Dev/staging environments apply
+                                            # relaxed enforcement and shorter defaults.
+  tags:
+    - "dodd-frank"                          # Links this source to Dodd-Frank 17 CFR Part 45 swap
+                                            # data reporting obligations in the lineage catalog.
+    - "tier-1"                              # Tier-1 SLA: any pipeline failure pages on-call
+                                            # immediately rather than routing to the next-business-day
+                                            # queue. Remove this tag only if you reclassify the SLA.
+    - "trade-reporting"                     # Groups this source with other trade-reporting pipelines
+                                            # in dashboards; no engine behaviour is driven by this tag.
+
+connection:
+  type: "jdbc"                              # Selects the JDBC extraction path in the connector
+                                            # registry. The engine will instantiate OracleJdbcConnector
+                                            # because jdbcDriver is "oracle". Changing this to "file"
+                                            # or "kafka" would load a completely different connector class.
+  credentialsRef: "vault://secret/prod/oracle-trades/jdbc-credentials"
+                                            # Vault path resolved at runtime to username + password.
+                                            # The engine never reads literal credentials from config —
+                                            # this file is safe to commit. If Vault is unavailable at
+                                            # startup, the engine fails fast rather than connecting
+                                            # without credentials.
+  host: "oracle-trading-prod.internal.example.com"
+                                            # Internal DNS name rather than an IP address so that
+                                            # Oracle RAC failover to a new node does not require a
+                                            # config change. Never use an IP here for production RAC.
+  port: 1521                               # Standard Oracle listener port. Change only if your DBA
+                                            # has configured a non-standard listener; verify with
+                                            # `tnsping` before changing.
+  database: "TRADEDB"                      # Oracle SERVICE NAME (not SID). The JDBC URL the engine
+                                            # builds uses the thin driver // syntax which expects a
+                                            # service name. If you supply a SID here the connection
+                                            # will fail — see docs/connectors/oracle-connector.md.
+  jdbcDriver: "oracle"                     # Loads ojdbc11.jar and constructs a
+                                            # jdbc:oracle:thin:@//host:port/service URL. The driver
+                                            # jar must be present on the executor classpath; the
+                                            # framework does not bundle it due to OTN license terms.
+
+ingestion:
+  mode: "incremental"                      # Only records with TRADE_TIMESTAMP greater than the stored
+                                            # watermark are extracted on each run. Full refresh is not
+                                            # viable for a high-volume trade database — a full scan
+                                            # would take hours and exceed the 2-hour timeout below.
+  incrementalColumn: "TRADE_TIMESTAMP"     # Monotonically increasing Oracle TIMESTAMP column. The
+                                            # engine issues WHERE TRADE_TIMESTAMP > :last_watermark.
+                                            # Do not use a TIMESTAMP WITH TIME ZONE column unless
+                                            # oracle.jdbc.J2EE13Compliant=true is set; the JDBC thin
+                                            # driver returns TZ offsets inconsistently otherwise.
+                                            # See docs/connectors/oracle-connector.md.
+  watermarkStorage: "s3://pipeline-state/watermarks/fs-oracle-trades-001"
+                                            # After each successful Bronze write, the engine persists
+                                            # MAX(TRADE_TIMESTAMP) from the extracted batch here. A
+                                            # failed write leaves this file unchanged, so the next run
+                                            # automatically re-covers the missed window. Losing this
+                                            # file causes the next run to do a full scan — keep S3
+                                            # versioning enabled on this bucket.
+  batchSize: 25000                         # JDBC fetchsize: rows fetched per round-trip to Oracle.
+                                            # Trade rows are wide (50+ columns, LOB fields) so 25000
+                                            # sits at the memory-safe ceiling for the executor heap
+                                            # size used here. Narrower rows could use 50000–100000.
+                                            # Too large → executor OOM; too small → excessive
+                                            # round-trips and slower extraction.
+  parallelism: 8                           # Spark tasks spawned for extraction, also controls
+                                            # numPartitions when partition column options are set.
+                                            # Set to the number of executor cores available on the
+                                            # cluster for this pipeline. Higher values increase
+                                            # extraction throughput but also increase Oracle connection
+                                            # pool pressure — verify the pool limit before raising.
+  schedule: "0 */4 * * *"                  # Fires every 4 hours at minute 0 (00:00, 04:00, 08:00…).
+                                            # Chosen to align with intra-day risk reporting windows.
+                                            # A 2-hour extraction window fits comfortably between runs.
+                                            # If extraction starts to exceed 2 hours, narrow the
+                                            # interval rather than increasing the timeout.
+  timeout: 7200                            # Hard abort after 2 hours. Without this, a slow Oracle
+                                            # query could block the executor indefinitely, causing the
+                                            # next scheduled run to queue behind it. The 4-hour
+                                            # schedule gives a 2-hour buffer before the next run
+                                            # would be delayed.
+
+schemaEnforcement:
+  enabled: true                            # Reject records that do not conform to the declared schema.
+                                            # Disabling this risks type mismatches landing silently in
+                                            # Bronze where they would corrupt downstream Silver transforms.
+  mode: "strict"                           # Abort the pipeline on the first schema violation rather
+                                            # than routing bad records to quarantine and continuing.
+                                            # "strict" is appropriate for trade data where a schema
+                                            # change (e.g. a new Oracle column) should halt ingestion
+                                            # until the schema registry document is updated — not
+                                            # silently pass through mismatched records.
+  registryRef: "schemas/financial-services/trade-execution-v2.json"
+                                            # Path to the JSON Schema document that defines expected
+                                            # column names, types, and nullability for TRADE_EXECUTION
+                                            # records. "v2" — this schema has been through one revision;
+                                            # do not point to v1 unless you are intentionally running
+                                            # against the old schema version.
+
+qualityRules:
+  enabled: false                           # Quality rules are a Phase 2 feature targeted for the
+                                            # v0.2.0 release. Setting this to true in v0.1.0 causes
+                                            # the config validator to reject the entire config file
+                                            # at startup — the pipeline will not run at all.
+
+quarantine:
+  enabled: true                            # Failed records are written to the quarantine path rather
+                                            # than being silently dropped. This is a non-negotiable
+                                            # architectural requirement — silent record loss creates
+                                            # an undetectable gap in Dodd-Frank reporting data.
+  path: "s3://datalake-quarantine/financial-services/oracle-trades/"
+                                            # Must be a different bucket or prefix from storage.path.
+                                            # The engine validates this at startup; using the same path
+                                            # risks overwriting valid Bronze records with quarantine
+                                            # entries. Prefixed by sector to isolate access policies.
+  retentionDays: 365                       # Quarantine records kept for 1 year to allow investigation
+                                            # and replay within the same fiscal year. Shorter periods
+                                            # risk deleting records that are still under regulatory
+                                            # scrutiny. Note: the audit trail (audit.retentionDays)
+                                            # runs for 7 years regardless of this setting.
+  errorClassification: true               # Tags each quarantined record with a structured error code
+                                            # (schema_violation, type_mismatch, null_violation, etc.)
+                                            # so that the cause of failure can be determined without
+                                            # replaying the record manually. Disabling this makes
+                                            # quarantine investigation substantially harder.
+
+storage:
+  layer: "bronze"                          # The v0.1.0 ingestion engine only writes to Bronze. Silver
+                                            # and Gold layers are produced by separate downstream
+                                            # processes. Changing this value to "silver" or "gold"
+                                            # will be rejected at startup in v0.1.0.
+  format: "delta"                          # Delta Lake provides ACID transactions, time travel, and
+                                            # schema evolution — all required for regulated audit
+                                            # compliance. "iceberg" is the alternative if your lakehouse
+                                            # catalog requires it; both are supported by the engine.
+  path: "s3://datalake-bronze/financial-services/oracle-trades/"
+                                            # Target S3 prefix for Bronze Delta table data files.
+                                            # Must not overlap with quarantine.path. The engine
+                                            # enforces write-once on this path when
+                                            # audit.immutableRawEnabled is true.
+  partitionBy:
+    - "trade_date"                         # Partition by calendar date so that time-range queries
+                                            # required by Dodd-Frank reporting skip entire partitions
+                                            # rather than full-table scanning.
+    - "asset_class"                        # Secondary partition reduces scan cost for asset-class-
+                                            # specific regulatory queries (e.g. rates vs credit vs FX
+                                            # reporting). Only add a partition column if queries
+                                            # regularly filter on it — over-partitioning creates
+                                            # excessive small files.
+  compactionEnabled: true                  # Run Delta small-file compaction (OPTIMIZE) after each
+                                            # write. Every 4-hour run appends a new batch of files;
+                                            # without compaction, read amplification on the Bronze
+                                            # table grows linearly over weeks. Enabled here because
+                                            # 4-hourly runs produce enough files to justify the
+                                            # compaction overhead.
+
+monitoring:
+  metricsEnabled: true                     # Expose a Prometheus /metrics endpoint during pipeline
+                                            # execution. Required for SLA visibility in Grafana.
+                                            # Disabling this means the SLA threshold below has no
+                                            # effect — there are no metrics to evaluate.
+  prometheusPort: 9091                     # Non-default port (9090 is used by another pipeline on
+                                            # the same executor host). Each pipeline on a shared
+                                            # executor must use a distinct port; conflicts cause the
+                                            # metrics endpoint to fail silently on one of the pipelines.
+  slaThresholdSeconds: 3600                # Emit an SLA breach event if extraction + write exceeds
+                                            # 1 hour. Chosen to leave a 1-hour buffer before the next
+                                            # 4-hourly run and provide early warning that extraction is
+                                            # growing toward the timeout.
+  alertOnFailure: true                     # Emit an alert to the owner team on any terminal pipeline
+                                            # failure. Combined with the "tier-1" tag this routes
+                                            # to the immediate on-call queue rather than the
+                                            # next-business-day ticketing flow.
+
+audit:
+  enabled: true                            # Write audit records to the lineage catalog for every run.
+                                            # Must be true in production. Disabling audit in a
+                                            # Dodd-Frank-tagged pipeline would create a gap in the
+                                            # traceable chain of custody that regulators require.
+  lineageTracking: true                    # Record source-to-Bronze lineage per run: source table,
+                                            # target S3 path, run timestamp, row counts extracted and
+                                            # written. This record is what a regulator or auditor
+                                            # reviews to confirm data was ingested correctly and on time.
+  immutableRawEnabled: true               # Enforce write-once on the Bronze path. The engine sets
+                                            # Delta table properties to deny updates and deletes on
+                                            # the Bronze layer. This is a direct control for Dodd-Frank
+                                            # 17 CFR Part 45 immutable recordkeeping obligations.
+  retentionDays: 2555                      # 7-year retention (365 × 7 = 2555 days). This is the
+                                            # U.S. financial services regulatory minimum for swap data
+                                            # records under 17 CFR Part 45. Shortening this value
+                                            # would put the firm out of compliance; lengthening it
+                                            # is conservative and acceptable.
+```
+
+---
+
+### Example 2 — Energy: PostgreSQL JDBC full refresh (NERC CIP)
+
+```yaml
+# Source:      Smart Meter Registry — PostgreSQL
+# Sector:      Energy Infrastructure
+# Description: Daily full extract of smart meter registry data (meter IDs,
+#              installation dates, service addresses) from a PostgreSQL
+#              operational database. Full refresh is chosen because the registry
+#              is small (< 500K rows) and the operational complexity of
+#              watermark-based incremental extraction is not justified at this
+#              size. A daily run at 03:00 completes well before business hours.
+#              Write-once Bronze enforcement and 5-year audit retention satisfy
+#              NERC CIP-007 R5 and CIP-008 R3 requirements.
+# Compliance:  NERC CIP-007 R5 (Security Patch Management logging),
+#              NERC CIP-008 R3 (incident reporting audit trail),
+#              NIST CSF 2.0, NCS 2023
+
+schemaVersion: "1.0"   # The only value the v0.1.0 engine accepts; a different value
+                        # causes the config loader to return a SchemaValidationError
+                        # before any extraction begins.
+
+metadata:
+  sourceId: "energy-pg-meter-registry-001" # Primary key in the lineage catalog. Must be unique
+                                            # across all sources. The "energy" prefix groups this
+                                            # source with other energy-sector pipelines in dashboards
+                                            # and makes sector visible in metric labels without
+                                            # opening the config file.
+  sourceName: "Smart Meter Registry — PostgreSQL"
+                                            # Shown in Grafana alerts and the lineage catalog UI.
+                                            # "Smart Meter Registry" tells an on-call engineer exactly
+                                            # which operational dataset is affected — avoids the
+                                            # ambiguity of a generic name like "postgres-source-1".
+  sector: "energy"                         # Activates NERC CIP compliance enforcement paths in the
+                                            # engine (retention policy defaults, audit trail format,
+                                            # and alert routing). Using "financial-services" here
+                                            # would apply Dodd-Frank rules, which have different
+                                            # retention minimums and would miscategorise lineage.
+  owner: "grid-data-engineering"           # Team accountable for this pipeline. Receives failure
+                                            # alerts and is attributed in every lineage catalog entry.
+                                            # This must map to a real team in your alerting system —
+                                            # an incorrect value silently routes pages to the wrong queue.
+  environment: "prod"                      # Enables full compliance enforcement: NERC CIP retention
+                                            # defaults, strict schema validation, and immediate
+                                            # on-call alerting. Never run a production NERC CIP source
+                                            # with environment set to "dev" or "staging" — enforcement
+                                            # is relaxed and retention periods are shortened.
+
+connection:
+  type: "jdbc"                             # Selects the JDBC extraction path. The engine will
+                                            # instantiate PostgresJdbcConnector because jdbcDriver
+                                            # is "postgres". No custom connector code is required.
+  credentialsRef: "vault://secret/prod/pg-meter-registry/jdbc-credentials"
+                                            # Vault path resolved at runtime to PostgreSQL username
+                                            # and password. The engine fails fast if Vault is
+                                            # unreachable rather than falling back to an insecure
+                                            # alternative. This file is safe to commit — no literal
+                                            # credentials appear anywhere in it.
+  host: "pg-meter-ops.grid.example.com"   # Internal DNS name for the PostgreSQL operational host.
+                                            # Using DNS rather than an IP means a database failover
+                                            # or host migration does not require a config change —
+                                            # only a DNS record update.
+  port: 5432                               # Standard PostgreSQL port. Change only if the DBA has
+                                            # configured a non-standard listener. Verify with
+                                            # `psql -h pg-meter-ops.grid.example.com -p 5432` before
+                                            # deploying.
+  database: "meter_registry"              # The PostgreSQL database containing the meter registry
+                                            # tables. PostgreSQL connections are scoped to a single
+                                            # database; the engine cannot cross-database query in a
+                                            # single connection.
+  jdbcDriver: "postgres"                   # Loads the PostgreSQL JDBC driver (postgresql-42.x.jar)
+                                            # and constructs a jdbc:postgresql://host:port/database
+                                            # URL. The driver jar is bundled with the framework for
+                                            # PostgreSQL (unlike Oracle, which requires a separate
+                                            # OTN-licensed download).
+  sslMode: "verify-full"                   # Encrypted connection with CA validation and server
+                                            # hostname verification against the CN/SAN in the
+                                            # server certificate. NERC CIP-007 R5 requires encrypted
+                                            # transport for access to BES Cyber System data. Using
+                                            # "disable" or "require" (no CA verification) would leave
+                                            # the connection vulnerable to man-in-the-middle attack
+                                            # and would not satisfy CIP-007 R5. The CA certificate
+                                            # and client certificate must be supplied via credentialsRef.
+
+ingestion:
+  mode: "full"                             # Extract all rows from the meter registry on every run.
+                                            # Full refresh is the right choice here: the registry is
+                                            # < 500K rows (fits in a single JDBC batch with parallelism 4),
+                                            # the change detection complexity of incremental extraction
+                                            # (choosing and maintaining a watermark column) is not
+                                            # justified at this size, and a daily full snapshot
+                                            # provides a complete point-in-time record per partition.
+  batchSize: 10000                         # JDBC fetchsize per round-trip. Meter registry rows are
+                                            # narrow (meter ID, date, address — ~10 columns), so 10000
+                                            # rows per fetch is conservative. The full extract of
+                                            # 500K rows completes in ~50 fetches. Raising to 50000
+                                            # would also be safe for this row width.
+  parallelism: 4                           # Spark tasks for extraction. With < 500K rows and a
+                                            # small operational database, 4 tasks avoids overloading
+                                            # the PostgreSQL connection pool while still allowing
+                                            # parallel fetch. Raising parallelism on a small dataset
+                                            # adds coordination overhead without meaningful throughput gain.
+  schedule: "0 3 * * *"                   # Daily at 03:00. Chosen to run after nightly database
+                                            # maintenance windows (typically 01:00–02:30) and complete
+                                            # before business-hours reporting queries begin at 06:00.
+                                            # The 30-minute SLA threshold below means a failure is
+                                            # detected by 03:30 — well before any operational dependency.
+  timeout: 1800                            # Hard abort after 30 minutes. A full extract of 500K
+                                            # narrow rows should complete in under 5 minutes under
+                                            # normal conditions. A 30-minute timeout catches runaway
+                                            # queries (e.g. a missing index after a schema change)
+                                            # without blocking the executor for hours.
+
+schemaEnforcement:
+  enabled: true                            # Validate every extracted row against the declared schema.
+                                            # Meter registry data feeds asset-tracking and incident-
+                                            # response workflows under NERC CIP-008. A type mismatch
+                                            # on a meter ID column landing silently in Bronze would
+                                            # corrupt those downstream lookups.
+  mode: "strict"                           # Abort on the first schema violation. A schema change in
+                                            # the operational PostgreSQL database (e.g. a new column
+                                            # or a type change to a meter ID field) should halt
+                                            # ingestion and require an explicit schema registry update
+                                            # before proceeding — not silently pass through mismatched
+                                            # records to the Bronze layer.
+  registryRef: "schemas/energy/meter-registry-v1.json"
+                                            # Path to the JSON Schema document in the registry that
+                                            # defines expected columns, types, and nullability for
+                                            # the meter registry export. "v1" — this is the initial
+                                            # schema version; increment to v2 when the operational
+                                            # database schema changes and update this reference
+                                            # before the next pipeline run.
+
+qualityRules:
+  enabled: false                           # Quality rules are a Phase 2 feature targeted for the
+                                            # v0.2.0 release. Setting this to true in v0.1.0 causes
+                                            # the config validator to reject the entire config file
+                                            # at startup — the pipeline will not run at all.
+
+quarantine:
+  enabled: true                            # Route failed records to the quarantine path rather than
+                                            # dropping them. Even in a full-refresh pipeline, quarantined
+                                            # records represent rows that failed schema validation —
+                                            # they must be preserved for investigation, not silently
+                                            # discarded. Under NERC CIP-008 R3, evidence of data
+                                            # handling decisions must be retainable for incident review.
+  path: "s3://datalake-quarantine/energy/meter-registry/"
+                                            # Must differ from storage.path. Prefixed by sector to
+                                            # allow separate IAM policies for energy vs financial-services
+                                            # quarantine buckets. The engine validates that this path
+                                            # does not overlap with the Bronze storage path at startup.
+  retentionDays: 1825                      # 5-year retention (365 × 5 = 1825 days). NERC CIP-007 R5
+                                            # and CIP-008 R3 require security event and incident records
+                                            # to be retained for at least 3 years; 5 years is the
+                                            # NERC CIP audit lookback window and matches the audit
+                                            # retention below. Aligning both avoids a scenario where
+                                            # quarantine records expire before the audit trail they
+                                            # are referenced from.
+  errorClassification: true               # Tag each quarantined record with a structured error code
+                                            # so that the failure cause (schema_violation, null_violation,
+                                            # type_mismatch) is immediately visible without replaying
+                                            # the record. In a NERC CIP context this classification
+                                            # supports incident triage documentation.
+
+storage:
+  layer: "bronze"                          # The v0.1.0 ingestion engine writes to Bronze only.
+                                            # Bronze is the raw, immutable landing layer. Silver
+                                            # (conformed) and Gold (consumption-optimised) layers
+                                            # are produced by separate downstream processes not yet
+                                            # in scope for v0.1.0.
+  format: "delta"                          # Delta Lake provides ACID transactions and time travel.
+                                            # Time travel is important here: a daily full-refresh
+                                            # Delta table retains each day's snapshot via the Delta
+                                            # log, enabling point-in-time queries for incident
+                                            # investigations under NERC CIP-008 without requiring
+                                            # a separate backup process.
+  path: "s3://datalake-bronze/energy/meter-registry/"
+                                            # Target S3 prefix for Bronze Delta table data files.
+                                            # The "energy/" prefix isolates energy-sector data in
+                                            # a path that can receive a separate S3 bucket policy
+                                            # from financial-services data.
+  partitionBy:
+    - "ingestion_date"                     # Each daily full-refresh run lands in its own partition.
+                                            # This means yesterday's snapshot is not overwritten by
+                                            # today's — Delta time travel is available, and each
+                                            # partition is independently queryable for point-in-time
+                                            # incident investigation. Without this partition, each
+                                            # full refresh would require Delta REPLACE TABLE semantics
+                                            # and would eliminate historical snapshots.
+  compactionEnabled: false                 # Full-refresh runs produce one clean batch of files per
+                                            # partition per day. There is no file fragmentation from
+                                            # multiple small appends, so compaction adds overhead
+                                            # with no read-performance benefit. Re-evaluate if the
+                                            # batch size is reduced and parallelism is raised, which
+                                            # would produce more small files per partition.
+
+monitoring:
+  metricsEnabled: true                     # Expose a Prometheus /metrics endpoint during pipeline
+                                            # execution. Required for the Grafana SLA dashboard and
+                                            # for the slaThresholdSeconds check below to have any effect.
+  prometheusPort: 9093                     # Non-default port; 9090 and 9091 are used by other
+                                            # pipelines on the same executor host. Each pipeline on
+                                            # a shared executor must bind a distinct port. Port 9093
+                                            # is also the default Kafka broker metrics port — verify
+                                            # there is no Kafka broker on this host before using it.
+  slaThresholdSeconds: 1800                # Emit an SLA breach event if extraction + write exceeds
+                                            # 30 minutes. This matches the timeout value, meaning
+                                            # an SLA breach fires at the same moment the pipeline
+                                            # would be aborted. In practice, a healthy run takes
+                                            # under 5 minutes — an SLA breach at this threshold
+                                            # indicates a serious performance regression.
+  alertOnFailure: true                     # Emit an alert to the owner team on any terminal pipeline
+                                            # failure. Grid operations depend on the meter registry
+                                            # being current; a silent failure would propagate stale
+                                            # data downstream without any notification.
+
+audit:
+  enabled: true                            # Write audit records to the lineage catalog for every run.
+                                            # NERC CIP-007 R5 requires that access to and processing of
+                                            # BES Cyber System Information (BCSI) be logged and
+                                            # auditable. Disabling audit here would create a gap
+                                            # in that mandatory log.
+  lineageTracking: true                    # Record source-to-Bronze lineage per run: PostgreSQL host,
+                                            # target S3 path, run timestamp, and row counts extracted
+                                            # and written. This record is what a NERC CIP auditor
+                                            # reviews to confirm data was ingested correctly and on schedule.
+  immutableRawEnabled: true               # Enforce write-once on the Bronze path. The engine sets
+                                            # Delta table properties to deny updates and deletes on
+                                            # the Bronze layer. Combined with partitionBy ingestion_date,
+                                            # each daily snapshot becomes a permanent, tamper-evident
+                                            # record — supporting NERC CIP-008 R3 incident evidence
+                                            # retention requirements.
+  retentionDays: 1825                      # 5-year retention (365 × 5 = 1825 days). NERC CIP-007 R5
+                                            # and CIP-008 R3 require security log and incident record
+                                            # retention for a minimum of 3 years; 5 years aligns with
+                                            # the NERC CIP audit lookback period and matches the
+                                            # quarantine retention above. Mismatching these two values
+                                            # risks audit records outliving the quarantine records
+                                            # they reference, or vice versa.
+```
