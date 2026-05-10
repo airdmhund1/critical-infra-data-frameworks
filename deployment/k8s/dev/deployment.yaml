@@ -13,7 +13,7 @@
 #      ingestion unless the workload is partitioned. One replica is the
 #      correct posture for a batch job.
 #
-#   3. EXPECTED STARTUP BEHAVIOUR (v0.1.0-SNAPSHOT): The engine JAR has
+#   3. EXPECTED STARTUP BEHAVIOUR (v0.1.0): The engine JAR has
 #      no Main-Class manifest attribute yet (the Main class will land in a
 #      later issue). `java -jar /app/engine.jar` will therefore exit with
 #      "no main manifest attribute, in /app/engine.jar". The Pod will enter
@@ -35,7 +35,7 @@ metadata:
   labels:
     app.kubernetes.io/name: cidf-engine
     app.kubernetes.io/component: ingestion-engine
-    app.kubernetes.io/version: "0.1.0-SNAPSHOT"
+    app.kubernetes.io/version: "0.1.0"
     app.kubernetes.io/part-of: critical-infra-data-frameworks
     app.kubernetes.io/managed-by: kubectl
 spec:
@@ -49,7 +49,7 @@ spec:
       labels:
         app.kubernetes.io/name: cidf-engine
         app.kubernetes.io/component: ingestion-engine
-        app.kubernetes.io/version: "0.1.0-SNAPSHOT"
+        app.kubernetes.io/version: "0.1.0"
     spec:
       serviceAccountName: cidf-engine
 
@@ -71,7 +71,7 @@ spec:
 
       containers:
         - name: engine
-          image: cidf/ingestion-engine:0.1.0-SNAPSHOT
+          image: cidf/ingestion-engine:0.1.0
           imagePullPolicy: IfNotPresent
 
           # -------------------------------------------------------------------
