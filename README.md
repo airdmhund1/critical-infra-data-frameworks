@@ -21,7 +21,27 @@ The concrete operational consequence: each organisation bears the full burden of
 
 ## Architecture Overview
 
-See [docs/reference-architecture.md](docs/reference-architecture.md) for the full architecture description. The embedded diagram below (Branch 2) will depict the eight-layer system: Data Sources → Source Connectors → Configuration & Metadata Service → Ingestion Engine → Quality & Validation Engine → Lakehouse Storage → Orchestration & Monitoring → Security Layer.
+```mermaid
+graph TD
+    A["Data Sources<br/>RDBMS · Files · Kafka · REST APIs"] --> B["Source Connectors<br/>JDBC (Oracle, Teradata, Postgres)<br/>File (CSV, Parquet, JSON)<br/>Streaming · API"]
+    B --> C["Configuration &amp; Metadata Service<br/>YAML pipeline config · JSON Schema registry<br/>Credentials resolver (Vault / KMS)"]
+    C --> D["Ingestion Engine<br/>Spark 3.5.3 / Scala 2.13<br/>Schema enforcement · Watermark extraction<br/>Audit event log · Run correlation ID"]
+    D --> E["Quality &amp; Validation Engine<br/>Rules-based validation · Quarantine routing<br/>Error classification (Phase 2)"]
+    E --> F["Lakehouse Storage<br/>Bronze layer · Delta Lake 3.2.1<br/>Append-only · SHA-256 checksum<br/>Time-partitioned · Immutable"]
+    F --> G["Orchestration &amp; Monitoring<br/>Airflow / Dagster · Prometheus · Grafana<br/>SLA alerting · Lineage catalog"]
+    D --> H["Security Layer<br/>TLS/mTLS · HashiCorp Vault / AWS KMS<br/>RBAC · Audit logging · Secret rotation"]
+
+    style A fill:#f0f4f8,stroke:#4a5568
+    style B fill:#e8f4fd,stroke:#2b6cb0
+    style C fill:#e8f4fd,stroke:#2b6cb0
+    style D fill:#c6f6d5,stroke:#276749
+    style E fill:#fefcbf,stroke:#b7791f
+    style F fill:#c6f6d5,stroke:#276749
+    style G fill:#e8f4fd,stroke:#2b6cb0
+    style H fill:#fed7d7,stroke:#9b2c2c
+```
+
+See [docs/reference-architecture.md](docs/reference-architecture.md) for the full architecture description, component interactions, and deployment patterns.
 
 ## Quick Start
 
