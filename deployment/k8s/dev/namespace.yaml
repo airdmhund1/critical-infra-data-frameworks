@@ -1,0 +1,23 @@
+# =============================================================================
+# Critical Infrastructure Data Frameworks — Kubernetes dev namespace
+# =============================================================================
+#
+# This manifest creates the `cidf-dev` namespace used for local development
+# testing with minikube or kind. All other dev-environment resources
+# (ServiceAccount, ConfigMap, Secret, Deployment, Service) target this
+# namespace.
+#
+# This namespace is NOT intended for staging or production use. For those
+# environments, provision a separate namespace with appropriate RBAC and
+# network policies applied before deploying workloads.
+#
+# Apply:
+#   kubectl apply -f deployment/k8s/dev/namespace.yaml
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cidf-dev
+  labels:
+    app.kubernetes.io/part-of: critical-infra-data-frameworks
+    app.kubernetes.io/managed-by: kubectl
