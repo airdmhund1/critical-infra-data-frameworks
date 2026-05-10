@@ -80,6 +80,12 @@ See [ROADMAP.md](ROADMAP.md) for the detailed phased release plan.
 **Phase 2** (Months 3–4): Quality validation engine and monitoring templates  
 **Phase 3** (Months 5–6): Compliance mapping, deployment guides, and community engagement
 
+## Architecture Decision Records
+
+The [Architecture Decision Records](docs/architecture-decisions.md) document the significant technical choices made during Phase 1 development — including the selection of Apache Spark/Scala, the configuration-driven pipeline design, Delta Lake storage, watermark-based incremental extraction, explicit schema enforcement, and external secrets management.
+
+Each ADR captures: the context that made a decision necessary, the decision taken, the rationale and evidence behind it, the alternatives considered and rejected, and the consequences for operators and contributors.
+
 ## Alignment with Federal Priorities
 
 This project supports objectives identified in:
