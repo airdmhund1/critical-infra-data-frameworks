@@ -1,5 +1,18 @@
 # Architecture Decision Record
 
+This document records the architectural decisions made during Phase 1 of the Critical Infrastructure Data Frameworks project. Each ADR captures the context, decision, rationale, alternatives considered, and consequences for a significant architectural choice.
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-001](#adr-001-configuration-driven-ingestion-pattern) | Configuration-Driven Ingestion Pattern | Accepted |
+| [ADR-002](#adr-002-lakehouse-storage-architecture-bronzesilvergold) | Lakehouse Storage Architecture (Bronze/Silver/Gold) | Accepted |
+| [ADR-003](#adr-003-compliance-grade-observability) | Compliance-Grade Observability | Accepted |
+| [ADR-004](#adr-004-watermark-based-incremental-extraction) | Watermark-Based Incremental Extraction | Accepted |
+| [ADR-005](#adr-005-explicit-schema-modes-for-file-based-source-connectors) | Explicit Schema Modes for File-Based Source Connectors | Accepted |
+| [ADR-006](#adr-006-external-secrets-management) | External Secrets Management | Accepted |
+
+---
+
 ## ADR-001: Configuration-Driven Ingestion Pattern
 
 ### Status
@@ -31,6 +44,12 @@ In each case, the configuration-driven approach produced:
 - Reduced operational burden through standardized monitoring
 - Lower error rates from elimination of copy-paste pipeline code
 
+### Alternatives Considered
+
+- **Fully code-driven pipelines (Apache Flink DSL, custom Spark jobs per source):** Each data source gets a bespoke pipeline implemented in code. Rejected because it replicates the fragmentation problem the framework is designed to solve — every new source requires a full development cycle, and security or quality changes must be applied to each pipeline individually. This was the dominant pattern in the production environments this framework replaces.
+- **Metadata-catalogue-driven orchestration (Apache Atlas, OpenMetadata as control plane):** The catalogue drives pipeline execution rather than static configuration files. Rejected for Phase 1 because catalogue integration adds significant operational overhead and the catalogues themselves require ingestion pipelines — creating a circular dependency for initial onboarding. Catalogue integration is planned for Phase 3.
+- **Low-code ETL tools (AWS Glue visual editor, Azure Data Factory, Informatica):** Visual pipeline builders with proprietary configuration formats. Rejected because they create vendor lock-in, are difficult to version-control, and do not provide the level of security and compliance control required in regulated environments.
+
 ### Consequences
 - Requires upfront investment in framework design before first source can be onboarded
 - Configuration schema must be carefully designed to be expressive enough for diverse sources without becoming overly complex
@@ -61,6 +80,13 @@ This pattern provides:
 - Regulatory compliance (lineage from raw source to final output is traceable)
 
 This pattern was validated in production at a globally systemically important financial institution, where it supported regulatory reporting workflows requiring complete data lineage.
+
+### Alternatives Considered
+
+- **Single-layer raw storage:** All ingested data lands in one location with transformations applied in-place or on read. Rejected because it forces a trade-off between auditability (preserve the raw record) and usability (apply quality rules). In regulated environments, both are required simultaneously.
+- **Two-layer architecture (raw + curated):** A simpler raw-plus-conformed model without a dedicated consumption layer. Rejected because it collapses the separation between data quality enforcement (Silver) and consumption optimisation (Gold), making it harder to serve diverse downstream consumers with different access patterns without duplicating logic.
+- **Data vault modelling:** A highly normalized historised modelling approach. Evaluated and deferred — data vault provides strong auditability but requires significant modelling investment upfront and imposes query complexity that is disproportionate to Phase 1 scope. It remains a viable pattern for the Silver-to-Gold transformation in Phase 3.
+- **Lambda architecture (batch + speed layers):** Separate batch and streaming pipelines merged at query time. Rejected because it doubles operational complexity and maintenance burden. The Bronze-Silver-Gold model supports both batch and streaming ingestion into the same layer structure without a separate speed layer.
 
 ### Consequences
 - Increased storage requirements (data exists in multiple refined states)
@@ -94,7 +120,134 @@ Standard application monitoring (uptime, CPU, memory) is insufficient for regula
 
 Production deployment of this observability approach reduced manual operational interventions by approximately 80% and improved SLA adherence by approximately 20-25 percentage points.
 
+### Alternatives Considered
+
+- **Standard application APM only (Datadog, New Relic, Dynatrace):** General-purpose application performance monitoring covering uptime, latency, and error rates. Rejected as the sole observability layer because it does not capture data-domain metrics (record counts, schema violations, quarantine rates) that regulators require as evidence of data integrity controls. APM tools remain useful as a complementary layer but cannot satisfy the compliance-grade evidence requirement independently.
+- **Log-only observability:** Rely entirely on structured log output without a metrics layer or dashboards. Rejected because log search is insufficient for trend analysis and SLA compliance reporting. Regulators and audit teams require aggregated views over time windows, not log search.
+- **Custom metrics store (build vs. buy):** Build a proprietary metrics collection and storage system tailored to data pipeline observability. Rejected in favour of the Grafana/Prometheus ecosystem, which is widely adopted, open-source, and has existing compliance-oriented dashboard templates for regulated industries.
+
 ### Consequences
 - Monitoring infrastructure adds operational overhead (Grafana, Prometheus, log aggregation)
 - Dashboard design requires collaboration with compliance and operations stakeholders
 - Metrics retention policies must be aligned with regulatory record-keeping requirements
+
+---
+
+## ADR-005: Explicit Schema Modes for File-Based Source Connectors
+
+### Status
+Accepted
+
+### Context
+File-based sources — CSV, JSON, TSV, fixed-width — are common in regulated sectors: meter readings, trade reports, and regulatory submissions are routinely delivered as flat files. Apache Spark's default behaviour for CSV and JSON reads is **schema inference**: it samples records and guesses column types, behaviour that is invisible to the pipeline operator.
+
+In regulated environments, silent schema inference creates three categories of risk:
+
+1. **Data integrity risk**: a type widening (e.g. an integer column inferred as string) silently corrupts downstream aggregations without raising an error.
+2. **Compliance risk**: pipelines must be reproducible and auditable; schema inference is non-deterministic across Spark versions and sample sizes, meaning the same source file can produce different schemas on different runs.
+3. **Drift blindness**: when a file producer changes column names or types, an inference-based pipeline silently adapts — the change goes undetected until downstream consumers surface incorrect results, which may be after regulatory reporting has occurred.
+
+### Decision
+All file-based source connectors in this framework operate in one of exactly two explicit schema modes. There is no third "auto" or "inferred" mode.
+
+- **`strict` mode**: the operator declares a `schemaRef` in the pipeline configuration pointing to a registered JSON Schema document. The connector reads the file with the declared schema applied. Any record that does not conform raises a `ConnectorError` and the pipeline halts (or routes to quarantine, depending on the corrupt record mode setting). The schema is never inferred from the data.
+- **`discovered-and-log` mode**: the connector allows Spark to infer the schema from the file and compares the inferred schema against the registered schema for the source. Any structural difference — new columns, missing columns, type changes — is emitted as a structured WARN log entry with the full diff. The inferred schema is **never automatically applied** to downstream processing; the pipeline still applies the registered schema. This mode is intended for source-onboarding and monitoring, not for production ingestion.
+
+Silent schema inference (`inferSchema=true` with no comparison or logging) is explicitly prohibited and must never be used in a connector implementation.
+
+### Rationale
+- Maps to **NERC CIP-007** (data integrity for energy sector) and **Dodd-Frank Act** data-quality requirements (financial services): both require that data ingestion is auditable and reproducible.
+- **NIST CSF 2.0 Identify function**: asset management requires that the schema of data flowing through the system is known and governed, not discovered at runtime.
+- Production incident pattern: in financial services environments, silent schema changes in upstream flat-file feeds have caused incorrect regulatory capital calculations that were not detected until next-day reconciliation — after the reporting deadline.
+- The `discovered-and-log` mode provides a safe path for schema change detection without creating a pipeline failure that blocks time-sensitive ingestion; operators are notified of drift and can update the registered schema after review.
+
+### Alternatives Considered
+
+- **Spark auto-inference with post-hoc validation (Great Expectations, custom assertions):** Allow Spark to infer the schema from the file, then validate the inferred schema against a declared schema using a separate validation layer. Rejected because the inferred schema is applied to the DataFrame before validation can run — type widenings and column renamings have already corrupted the data by the time the assertion fires. The rejection must happen before the schema is applied, not after.
+- **Schema-on-read with no enforcement:** Accept any schema the file presents and push schema reconciliation to downstream consumers. Explicitly rejected for regulated environments: downstream consumers in financial services and energy are regulatory reporting systems where a schema change causing an incorrect calculation may not be detected until after a reporting deadline.
+- **Registry-enforced schemas via Confluent Schema Registry or AWS Glue Schema Registry:** Apply schema enforcement through a centralised registry with producer/consumer contracts. Evaluated as a future option for streaming sources (Kafka). Not applicable to file-based sources where the producer is an external system not under framework control and cannot be required to register schemas.
+- **Manual schema documentation only (data dictionaries, column descriptions):** Document the expected schema in a wiki or data dictionary without programmatic enforcement. Rejected: documentation diverges from reality over time and provides no runtime protection against schema drift.
+
+### Consequences
+- Every file-based source must have a registered schema (`schemaRef`) — there is no zero-configuration onboarding path for file sources.
+- Operators must update the registered schema explicitly when a source producer makes a breaking change; the pipeline will not self-adapt.
+- `discovered-and-log` mode produces WARN log entries that must be monitored; recommended: alert on any schema drift event in production pipelines.
+- Spark's `inferSchema=true` option may still be used internally by the framework in `discovered-and-log` mode for comparison purposes, but the inferred schema is never surfaced to the DataFrame that leaves the connector — this distinction must be enforced in code review.
+- This ADR supersedes any earlier framework behaviour that permitted implicit inference; all file connectors written before this ADR was accepted must be updated to conform.
+
+---
+
+## ADR-004: Watermark-Based Incremental Extraction
+
+### Status
+Accepted
+
+### Context
+Regulated data sources — JDBC databases, file drops, streaming feeds — are rarely amenable to full-table extraction on every pipeline run. A 200M-row regulatory database extracted in full every 15 minutes is impractical: it saturates network bandwidth, consumes excessive Spark resources, and produces unnecessarily large Bronze writes.
+
+Two main patterns exist for extracting only new or changed records:
+1. **Watermark-based polling**: query `WHERE updated_at > last_known_watermark`, store the max value seen, advance the watermark on success.
+2. **Change Data Capture (CDC) / log-based replication**: read the database's binary replication log (Postgres WAL, Oracle LogMiner, MySQL binlog) and stream only changed rows.
+
+### Decision
+The framework uses watermark-based incremental extraction as the primary pattern for JDBC and file sources. The `incrementalColumn` and `watermarkStorage` fields in the pipeline configuration define the column to track and the URI where the last watermark is persisted. Watermarks are advanced only on successful Bronze writes — a failed write leaves the watermark unchanged so the next run re-covers the window without data loss.
+
+### Rationale
+Watermark-based extraction was chosen because:
+- It requires no database-side configuration (no replication slots, no supplemental logging, no binlog retention policy)
+- It works across all supported JDBC drivers (Oracle, Postgres, Teradata) without driver-specific CDC adapters
+- The failure recovery model is simple: if a run fails, the watermark is not advanced, and the next run re-extracts from the last good point
+- It is auditable: the watermark value is a first-class artefact stored in a durable location and recorded in the audit log alongside each run
+- Watermark columns (`updated_at`, `recorded_at`, `event_timestamp`) are already present in most regulated-sector operational databases as a compliance requirement
+
+Production validation: watermark-based extraction was used in financial services regulatory reporting pipelines processing 50M+ rows/day, achieving consistent sub-60-second extraction latency for incremental runs vs. 45-minute full extracts.
+
+### Alternatives Considered
+- **CDC/log-based replication (Debezium, Oracle GoldenGate, AWS DMS):** Captures all changes including deletes and multiple updates to the same row within a window. Rejected for Phase 1 because it requires database-side configuration (WAL level, replication slots, supplemental logging), creates operational dependency on the source database's log retention settings, introduces DDL sensitivity (schema changes can break the CDC stream), and adds infrastructure complexity (Kafka, Debezium connectors) that is disproportionate to Phase 1 scope. CDC is documented as a Phase 3 capability for sources that require it.
+- **Full extraction with deduplication:** Extract the entire table and deduplicate against what is already in Bronze. Rejected: impractical at scale and produces unnecessarily large Bronze writes, violating the storage efficiency principle.
+- **Source-side triggers / outbox pattern:** Application-level change tracking where the source system writes changed records to a staging table. Rejected: requires source system modification, which is outside the framework's scope for read-only integration.
+
+### Consequences
+- Sources must have a monotonically increasing column suitable for use as a watermark (`TIMESTAMP`, `BIGINT` sequence). Sources without such a column require a full load strategy.
+- Watermark-based extraction does not capture hard deletes. If a source record is deleted, the deletion is not reflected in Bronze unless the source uses soft deletes with an `updated_at` column update.
+- Clock skew between the source database server and the pipeline runner can cause records to be missed if the watermark advances past records that were written with a slightly earlier timestamp. Mitigated by configuring a safe lag margin (documented in connector configuration).
+- Late-arriving records — records with a past timestamp inserted after the watermark has advanced — are not captured. Acceptable in the regulated-sector use cases validated, where source systems write records in near-real-time.
+
+---
+
+## ADR-006: External Secrets Management
+
+### Status
+Accepted
+
+### Context
+Every data ingestion pipeline requires credentials to connect to source systems: database passwords, API keys, storage access keys, TLS certificates. The question is not whether credentials are needed, but where they live and how the framework accesses them at runtime.
+
+Three naive approaches appear in practice:
+1. **Environment variables**: credentials set in the container or process environment at launch time.
+2. **Config file encryption**: credentials stored in the pipeline configuration file, encrypted with a key managed by the operator.
+3. **External secrets manager**: credentials stored in a dedicated secrets management system (HashiCorp Vault, AWS KMS/Secrets Manager, GCP Secret Manager) and resolved at runtime via authenticated API call.
+
+### Decision
+All credentials are resolved at runtime from an external secrets manager. Pipeline configuration files reference credentials using `vault://`-scheme URIs (e.g. `vault://secret/prod/oracle-tradedb/jdbc-credentials`). The `SecretsResolver` interface is resolved at engine startup to the appropriate implementation (`VaultSecretsResolver`, `AwsKmsSecretsResolver`, or `LocalDevSecretsResolver` for testing). No credential value — not even an encrypted one — is ever present in a pipeline configuration file or version-controlled artefact.
+
+### Rationale
+- **NIST CSF 2.0 Protect function (PR.AC)**: access to credentials must be managed, audited, and revocable. Environment variables and config files provide none of these.
+- **Dodd-Frank / NERC CIP audit requirements**: credential access must be logged. Vault and AWS KMS provide a complete audit trail of every credential read, including who read it, when, and from which system.
+- **Rotation without redeployment**: Vault and KMS support credential rotation that takes effect on the next resolution call without restarting the pipeline. Environment variables require container restarts; config file encryption requires re-encryption and redeployment.
+- **Blast radius containment**: a compromised pipeline configuration file reveals only a `vault://` URI — not a usable credential. An attacker also needs valid Vault authentication to resolve the secret.
+- **Developer safety**: the `vault://` URI scheme makes it syntactically impossible to accidentally commit a real credential. A committed `vault://...` string is harmless; a committed password is not.
+
+### Alternatives Considered
+- **Environment variables**: Simple and universally supported, but credentials appear in process listings (`/proc/<pid>/environ`), are inherited by child processes, are not audited, and require container restarts to rotate. Rejected for production use. Retained for `LocalDevSecretsResolver` in test environments only, where these risks are acceptable.
+- **Config file encryption (Ansible Vault, SOPS, git-crypt)**: Moves the problem rather than solving it — the decryption key must now be protected and distributed. Encrypted ciphertext committed to version control is still an attack surface (cryptanalysis, key compromise). Rotation requires re-encrypting every affected config file. Rejected.
+- **Kubernetes Secrets**: Base64-encoded values stored in etcd, readable by any pod in the namespace with default RBAC. Not encrypted at rest without additional configuration. Acceptable as a distribution mechanism from an external secrets manager (External Secrets Operator pattern), but not as the authoritative secret store. Documented as an acceptable intermediary in production K8s deployments; see `deployment/k8s/README.md`.
+- **Hardcoded credentials in source**: Mentioned for completeness — explicitly prohibited by all applicable regulatory frameworks and this project's architecture principles.
+
+### Consequences
+- Every deployment environment must have a running secrets manager instance accessible to the pipeline engine. `LocalDevSecretsResolver` is provided for local development and CI environments where Vault/KMS is unavailable.
+- The `SecretsResolver` interface is injectable, making it straightforward to add new secrets backends (e.g. GCP Secret Manager) without modifying the engine.
+- Credential resolution adds a network round-trip at pipeline startup. In practice this is negligible (<100ms) relative to pipeline execution time.
+- The `vault://` URI scheme is a framework convention — it is not a standard and must be documented for operators unfamiliar with the pattern.
+
+---

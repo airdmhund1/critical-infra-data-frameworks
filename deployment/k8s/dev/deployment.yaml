@@ -1,0 +1,228 @@
+# =============================================================================
+# Critical Infrastructure Data Frameworks — ingestion-engine Deployment (dev)
+# =============================================================================
+#
+# IMPORTANT — read before applying:
+#
+#   1. ENVIRONMENT: This manifest targets the cidf-dev namespace only.
+#      Do not apply to staging or production without a full review and
+#      environment-specific overlay (Kustomize or Helm values).
+#
+#   2. REPLICAS: replicas: 1 is intentional. The ingestion engine is a
+#      batch workload — running more than one replica would cause duplicate
+#      ingestion unless the workload is partitioned. One replica is the
+#      correct posture for a batch job.
+#
+#   3. EXPECTED STARTUP BEHAVIOUR (v0.1.0): The engine JAR has
+#      no Main-Class manifest attribute yet (the Main class will land in a
+#      later issue). `java -jar /app/engine.jar` will therefore exit with
+#      "no main manifest attribute, in /app/engine.jar". The Pod will enter
+#      CrashLoopBackOff. This is EXPECTED. The Deployment is here for
+#      development convenience and to validate security-context, resource,
+#      probe, and volume configuration before the Main class lands.
+#
+#   4. PRODUCTION PIPELINE RUNS: Real pipeline runs should use
+#      `kubectl create job` or an operator-managed Job (e.g. Spark Operator),
+#      not a long-running Deployment. The Deployment resource is retained
+#      here for dev-loop convenience and pod-health verification only.
+#
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cidf-engine
+  namespace: cidf-dev
+  labels:
+    app.kubernetes.io/name: cidf-engine
+    app.kubernetes.io/component: ingestion-engine
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/part-of: critical-infra-data-frameworks
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cidf-engine
+      app.kubernetes.io/component: ingestion-engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cidf-engine
+        app.kubernetes.io/component: ingestion-engine
+        app.kubernetes.io/version: "0.1.0"
+    spec:
+      serviceAccountName: cidf-engine
+
+      # -----------------------------------------------------------------------
+      # Pod-level security context
+      # -----------------------------------------------------------------------
+      # runAsNonRoot + runAsUser/runAsGroup mirror the non-root `cidf` user
+      # (UID/GID 10001) created in the Dockerfile runtime stage. Defence-in-
+      # depth: even if the image USER directive were accidentally overridden,
+      # Kubernetes will refuse to start the container as root.
+      # fsGroup 10001 ensures volume mounts (including /tmp) are owned by the
+      # `cidf` group, so the JVM can write temporary files.
+      # -----------------------------------------------------------------------
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+
+      containers:
+        - name: engine
+          image: cidf/ingestion-engine:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          # -------------------------------------------------------------------
+          # Container-level security context
+          # -------------------------------------------------------------------
+          # allowPrivilegeEscalation: false — the JVM process may not gain
+          #   additional privileges via setuid/setgid.
+          # readOnlyRootFilesystem: true — the container root filesystem is
+          #   mounted read-only. The JVM still needs a writable /tmp; see the
+          #   engine-tmp volume below.
+          # capabilities.drop: ["ALL"] — all Linux capabilities are dropped.
+          #   The ingestion engine requires no special capabilities.
+          # -------------------------------------------------------------------
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # -------------------------------------------------------------------
+          # Resource requests and limits
+          # -------------------------------------------------------------------
+          # requests — guaranteed allocation the scheduler uses for placement.
+          # limits   — hard ceiling; exceeding memory causes OOMKill, exceeding
+          #   CPU causes throttling. Size limits generously for a JVM workload
+          #   to avoid premature OOMKill during GC spikes. These values are
+          #   conservative starting points — tune after profiling real batches.
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+
+          # -------------------------------------------------------------------
+          # Environment — non-secret values from ConfigMap
+          # -------------------------------------------------------------------
+          # Injects: VAULT_ADDR, AWS_S3_ENDPOINT, AWS_S3_PATH_STYLE_ACCESS
+          # -------------------------------------------------------------------
+          envFrom:
+            - configMapRef:
+                name: cidf-engine-config
+
+          # -------------------------------------------------------------------
+          # Environment — secret values from Secret (individual key refs)
+          # -------------------------------------------------------------------
+          # Each secret key is injected individually rather than using
+          # `secretRef` to make the variable names explicit and to avoid
+          # accidentally exposing unrelated keys if the Secret is later
+          # extended. The Secret is populated externally (kubectl create secret
+          # or External Secrets Operator) — see secret.yaml for instructions.
+          # -------------------------------------------------------------------
+          env:
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cidf-engine-secrets
+                  key: VAULT_TOKEN
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: cidf-engine-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cidf-engine-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+
+          # -------------------------------------------------------------------
+          # Liveness and readiness probes
+          # -------------------------------------------------------------------
+          # WHY NOT httpGet?
+          #   The ingestion engine is a batch job — it has no running HTTP
+          #   server and no listening ports. httpGet probes would always fail.
+          #
+          # WHY `exec: java -version`?
+          #   Running `java -version` verifies that:
+          #     (a) the JRE binary is present and executable, and
+          #     (b) the container is alive and able to run processes.
+          #   It is a lightweight, zero-network-dependency check that exits
+          #   immediately (< 50 ms). It does NOT verify that the engine JAR
+          #   is doing useful work — that is a concern for pipeline-level
+          #   monitoring (Prometheus metrics, Airflow task state), not for
+          #   the K8s probe layer.
+          #
+          # FUTURE WORK: When the v0.1.0 Main class is introduced, revisit
+          #   these probes. Good options include:
+          #     - A JVM metrics endpoint (Prometheus JMX exporter on :9404)
+          #       with httpGet probes.
+          #     - A file-based readiness flag written by the engine on startup
+          #       (e.g. /tmp/ready) with `exec: ["test", "-f", "/tmp/ready"]`.
+          # -------------------------------------------------------------------
+          livenessProbe:
+            exec:
+              command: ["java", "-version"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["java", "-version"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # -------------------------------------------------------------------
+          # Volume mounts
+          # -------------------------------------------------------------------
+          volumeMounts:
+            # engine-tmp — writable /tmp for the JVM
+            # readOnlyRootFilesystem: true prevents the JVM from writing to
+            # the container root filesystem (e.g. temporary class-loading
+            # scratch, GC logs, Spark local shuffle). An emptyDir backed
+            # /tmp mount restores write access without relaxing the root-FS
+            # restriction. The emptyDir is node-local, ephemeral, and scoped
+            # to the Pod lifetime.
+            - name: engine-tmp
+              mountPath: /tmp
+
+            # pipeline-configs — read-only mount for pipeline YAML configs.
+            # PLACEHOLDER: this emptyDir carries no files and is here to
+            # reserve the mount path. In a real deployment, replace with:
+            #   - A ConfigMap volume (embed YAML configs as ConfigMap data
+            #     keys) for configs stored in the cluster. Example:
+            #       volumes:
+            #         - name: pipeline-configs
+            #           configMap:
+            #             name: cidf-pipeline-configs
+            #   - A hostPath volume for minikube local dev, pointing to the
+            #     repo's examples/configs/ directory. Example:
+            #       volumes:
+            #         - name: pipeline-configs
+            #           hostPath:
+            #             path: /path/to/repo/examples/configs
+            #             type: Directory
+            - name: pipeline-configs
+              mountPath: /app/configs
+              readOnly: true
+
+      # -----------------------------------------------------------------------
+      # Volumes
+      # -----------------------------------------------------------------------
+      volumes:
+        # Writable /tmp for the JVM — see volumeMounts comment above.
+        - name: engine-tmp
+          emptyDir: {}
+
+        # Pipeline config mount — emptyDir placeholder; see volumeMounts
+        # comment above for replacement instructions.
+        - name: pipeline-configs
+          emptyDir: {}

@@ -1,0 +1,117 @@
+# Source:      Smart Meter Interval Readings — PostgreSQL
+# Sector:      Energy / Utilities
+# Description: Ingests 15-minute interval energy readings from the utility's
+#              PostgreSQL operational database using watermark-based incremental
+#              extraction on recorded_at. Covers residential, commercial, and
+#              industrial meters across the service territory.
+#              Raw readings land in the Bronze Delta table partitioned by
+#              reading_date and meter_class. NERC CIP-007 and DOE AI Strategy
+#              2025 data-integrity requirements are addressed via immutable
+#              Bronze write-once enforcement and full audit lineage.
+# Compliance:  NERC CIP-007, NIST CSF 2.0, DOE AI Strategy 2025
+# Driver note: PostgreSQL JDBC driver (BSD-2-Clause) is bundled with this
+#              framework — no additional driver setup required.
+
+schemaVersion: "1.0"   # Schema spec version — must be "1.0" for v0.1.0 engine
+
+metadata:
+  sourceId: "energy-pg-meter-readings-001"          # Primary key in the lineage catalog; lowercase, hyphens only
+  sourceName: "Smart Meter Interval Readings — PostgreSQL"  # Human-readable name shown in dashboards and alerts
+  sector: "energy"                                  # Activates NERC CIP compliance enforcement paths
+  owner: "grid-data-engineering"                    # Team receiving failure alerts and lineage attribution
+  environment: "prod"                               # Enables full compliance enforcement and 7-year retention
+  tags:
+    - "nerc-cip"                                    # NERC CIP-007 data-integrity and availability requirements
+    - "tier-1"                                      # Tier-1 SLA: pipeline failure pages on-call immediately
+    - "meter-data"
+
+connection:
+  type: "jdbc"                                      # Selects JDBC extraction path in the connector registry
+  credentialsRef: "vault://secret/dev/pg-meter-db/jdbc-credentials"  # dev path seeded by vault-init.sh; for production replace with 'vault://secret/prod/pg-meter-db/jdbc-credentials'
+  # credentialsRef: Vault path resolved at runtime to username + password.
+  # Never put literal credentials here — this file is safe to commit.
+  # For verify-full SSL mode the sslrootcert JDBC property must also be
+  # supplied; pass it via the credential reference entry in Vault so it is
+  # resolved at runtime alongside the username and password.
+  host: "postgres"                                  # docker-compose: use service name 'postgres'; for production replace with real FQDN
+  port: 5432                                        # Standard PostgreSQL listener port
+  database: "cidf_dev"                              # docker-compose local dev database; for production replace with 'meter_ops'
+  jdbcDriver: "postgres"                            # Selects PostgresJdbcConnector; constructs jdbc:postgresql://host:port/database URL
+  sslMode: "disable"                                # docker-compose local dev only — never use 'disable' in production
+  # sslMode valid values: disable | require | verify-ca | verify-full
+  #   disable     — plaintext only; never appropriate in regulated environments.
+  #   require     — encrypted; server certificate is NOT validated (default connector behaviour).
+  #   verify-ca   — encrypted + CA certificate validated against sslrootcert.
+  #   verify-full — encrypted + CA validated + server hostname verified against CN/SAN.
+  # verify-full requires sslrootcert to be configured; supply it via the credentialsRef
+  # Vault entry so it is resolved at runtime — never set it as a literal path here.
+
+# JSONB column note: if the source table includes a meter_metadata column of
+# type JSONB, the PostgreSQL JDBC driver calls PGobject.getValue() internally
+# and returns the value as a plain Java String. Spark's JDBC reader therefore
+# infers StringType for that column automatically — no custom type mapping is
+# required on the connector side. Parse downstream with from_json if structured
+# access is needed:
+#
+#   df.withColumn("meter_metadata_parsed",
+#                 from_json(col("meter_metadata"), meterMetadataSchema))
+#
+# JSON columns (non-binary text JSON) behave identically to JSONB at the
+# JDBC layer.
+
+ingestion:
+  mode: "incremental"                               # Only records newer than the stored watermark are extracted
+  incrementalColumn: "recorded_at"                  # TIMESTAMP column — maps to TimestampWatermark; monotonically
+  # incrementalColumn: recorded_at is a TIMESTAMP (not TIMESTAMP WITH TIME ZONE).
+  # The engine filters new records using WHERE recorded_at > :lastWatermark.
+  # Ensure the column carries a non-null constraint and a covering index to
+  # prevent full-table scans on every 15-minute run.
+  watermarkStorage: "s3://bronze/watermarks/energy-pg-meter-readings-001"  # docker-compose: watermark stored in MinIO
+  # watermarkStorage: URI where the engine persists MAX(recorded_at) after each
+  # successful Bronze write. A failed write leaves the watermark unchanged so
+  # the next run re-covers the window without data loss.
+  batchSize: 50000                                  # Higher than trade data — meter rows are narrow (few wide columns)
+  parallelism: 4                                    # Spark tasks for extraction; also sets numPartitions if partition opts are set
+  schedule: "*/15 * * * *"                          # Every 15 minutes, aligned with the meter reading interval
+  timeout: 900                                      # 15 minutes; abort before the next scheduled run begins
+
+schemaEnforcement:
+  enabled: true                                     # Reject records that do not conform to the declared schema
+  mode: "strict"                                    # Strict: abort the pipeline on any schema violation (no silent pass-through)
+  registryRef: "schemas/energy/meter-interval-readings-v1.json"
+  # registryRef: Path to the JSON Schema document in the schema registry that
+  # defines expected column names, types, and nullability for
+  # meter_interval_readings records.
+
+qualityRules:
+  enabled: false                                    # Quality rules are a Phase 2 feature (v0.2.0). Must be false in v0.1.0.
+
+quarantine:
+  enabled: true                                     # Failed records are written to quarantine, never silently dropped
+  path: "s3://bronze/quarantine/pg-meter-readings/"  # docker-compose: uses same MinIO bucket with quarantine/ prefix
+  # path: Must differ from storage.path. Failed records land here with
+  # structured error codes attached so they can be reviewed and replayed
+  # without re-running the full extraction.
+  retentionDays: 90                                 # Quarantine records retained 90 days for investigation and replay
+  errorClassification: true                         # Tag each quarantined record with a structured error code (schema, type, null, etc.)
+
+storage:
+  layer: "bronze"                                   # v0.1.0 engine writes to Bronze only; Silver/Gold are downstream
+  format: "delta"                                   # Delta Lake: ACID transactions + time travel for audit compliance
+  path: "s3://bronze/energy/pg-meter-readings/"     # docker-compose: MinIO 'bronze' bucket; for production replace with real S3 path
+  partitionBy:
+    - "reading_date"                                # Partition by date enables efficient time-range queries and retention sweeps
+    - "meter_class"                                 # Secondary partition — values: residential, commercial, industrial
+  compactionEnabled: true                           # Run small-file compaction after each write; reduces read amplification
+
+monitoring:
+  metricsEnabled: true                              # Expose Prometheus endpoint during pipeline execution
+  prometheusPort: 9092                              # Non-default port; avoids clash with other pipelines on the same executor host
+  slaThresholdSeconds: 600                          # 10-minute SLA: readings must land in Bronze before the next ingest cycle begins
+  alertOnFailure: true                              # Page the owner team on any terminal pipeline failure
+
+audit:
+  enabled: true                                     # Write audit records to lineage catalog for every run
+  lineageTracking: true                             # Record source-to-Bronze lineage (table → S3 path, run timestamp, row counts)
+  immutableRawEnabled: true                         # NERC CIP-007 data-integrity requirement: enforce write-once on the Bronze path
+  retentionDays: 2555                               # 7-year retention (2555 days) — aligns with DOE AI Strategy 2025 data-stewardship obligations

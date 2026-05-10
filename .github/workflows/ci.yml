@@ -1,0 +1,129 @@
+# =============================================================================
+# Critical Infrastructure Data Frameworks — Core CI Pipeline
+#
+# Triggers on push to main and on all pull requests.
+#
+# Stages (in order):
+#   1. Checkout
+#   2. Java 11 (Temurin) setup
+#   3. sbt / Coursier dependency cache restore
+#   4. sbt compile
+#   5. sbt scalafmtCheck
+#   6. sbt scalafix --check
+#   7. sbt coverage test
+#   8. sbt coverageReport
+#   9. sbt coverageAggregate   ← enforces 80% statement-coverage gate via
+#                                coverageFailOnMinimum := true in build.sbt
+#
+# Security: no credentials or tokens in this file.
+# Separate branches handle security scanning and README badge updates.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-test:
+    name: Build, Lint, Test & Coverage Gate
+    runs-on: ubuntu-22.04
+
+    env:
+      # Give sbt and the JVM enough heap for a Spark-heavy build while staying
+      # inside the default GitHub-hosted runner's 7 GB RAM ceiling.
+      # -XX:+UseG1GC keeps GC pauses short during the test phase.
+      JAVA_OPTS: "-Xms512m -Xmx2g -XX:+UseG1GC"
+      SBT_OPTS:  "-Xms512m -Xmx2g -XX:+UseG1GC"
+
+    steps:
+      # -------------------------------------------------------------------------
+      # 1. Checkout
+      # -------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------------
+      # 2. Java 11 (Eclipse Temurin / Adoptium)
+      # -------------------------------------------------------------------------
+      - name: Set up Java 11 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      # -------------------------------------------------------------------------
+      # 3. sbt / Coursier dependency cache
+      #
+      # Cache key is a hash of build.sbt AND project/Dependencies.scala so that
+      # any dependency version bump invalidates the cache immediately.
+      # Fallback keys allow partial cache hits when only one file changes.
+      # -------------------------------------------------------------------------
+      - name: Restore sbt / Coursier cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.sbt
+            ~/.cache/coursier
+          key: ${{ runner.os }}-sbt-${{ hashFiles('build.sbt', 'project/Dependencies.scala') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # -------------------------------------------------------------------------
+      # 4. Compile
+      # -------------------------------------------------------------------------
+      - name: sbt compile
+        run: sbt compile
+
+      # -------------------------------------------------------------------------
+      # 5. Format check
+      #    Fails if any source file is not formatted according to .scalafmt.conf.
+      # -------------------------------------------------------------------------
+      - name: sbt scalafmtCheck
+        run: sbt scalafmtCheck
+
+      # -------------------------------------------------------------------------
+      # 6. Static analysis
+      #    Runs scalafix rules (defined in .scalafix.conf) and fails on violations.
+      # -------------------------------------------------------------------------
+      - name: sbt scalafix --check
+        run: sbt "scalafix --check"
+
+      # -------------------------------------------------------------------------
+      # 7. Unit + integration tests with coverage instrumentation
+      # -------------------------------------------------------------------------
+      - name: sbt coverage test
+        run: sbt coverage test
+
+      # -------------------------------------------------------------------------
+      # 8. Per-module coverage reports (HTML + XML, useful for PR annotations)
+      # -------------------------------------------------------------------------
+      - name: sbt coverageReport
+        run: sbt coverageReport
+
+      # -------------------------------------------------------------------------
+      # 9. Aggregate coverage gate
+      #    Merges per-module data and asserts aggregated statement coverage >= 80%.
+      #    Gate is enforced by:
+      #      coverageMinimumStmtTotal := 80
+      #      coverageFailOnMinimum    := true
+      #    both set in build.sbt at the ThisBuild scope.
+      # -------------------------------------------------------------------------
+      - name: sbt coverageAggregate (80% gate)
+        run: sbt coverageAggregate
+        
+      # -------------------------------------------------------------------------
+      # Upload coverage reports as a build artifact so they can be reviewed
+      # without re-running the pipeline.
+      # -------------------------------------------------------------------------
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            **/target/scala-*/scoverage-report/
+          retention-days: 14

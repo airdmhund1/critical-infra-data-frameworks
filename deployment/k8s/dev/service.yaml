@@ -1,0 +1,59 @@
+# =============================================================================
+# Critical Infrastructure Data Frameworks — ingestion-engine Service (dev)
+# =============================================================================
+#
+# IMPORTANT — read before applying:
+#
+#   1. BATCH ENGINE — NO LISTENING PORT: The ingestion engine is a batch job,
+#      not a long-running server. `java -jar /app/engine.jar` does not bind
+#      to any network port. Nothing in v0.1.0 currently listens on
+#      the port declared below.
+#
+#   2. PLACEHOLDER SERVICE: This Service exists to reserve the cidf-engine
+#      ClusterIP and DNS name (`cidf-engine.cidf-dev.svc.cluster.local`) for
+#      future use. Anticipated consumers:
+#        a. Phase 2 — Prometheus JMX exporter sidecar: will expose JVM
+#           metrics on a port (commonly :9404). Update this Service's port
+#           and add a Prometheus scrape annotation at that time.
+#        b. v0.1.0 Main class — may expose a lightweight health or admin
+#           endpoint. Update targetPort to match when implemented.
+#
+#   3. ClusterIP (no external traffic): type: ClusterIP means no node-port
+#      or load-balancer is allocated. Traffic to this Service is routable
+#      only from inside the cluster. This is intentional — the engine has no
+#      user-facing API and must not be exposed externally.
+#
+#   4. PORT 8080 IS A PLACEHOLDER: Nothing listens on 8080 in
+#      v0.1.0. The port value is a conventional placeholder. Update
+#      (or add additional port entries) when a real endpoint is introduced.
+#
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: cidf-engine
+  namespace: cidf-dev
+  labels:
+    app.kubernetes.io/name: cidf-engine
+    app.kubernetes.io/component: ingestion-engine
+    app.kubernetes.io/part-of: critical-infra-data-frameworks
+spec:
+  # ClusterIP — internal-only; no external traffic routed here.
+  # See header comment for reasoning.
+  type: ClusterIP
+
+  # Selects pods whose labels match. Consistent with the Deployment pod
+  # template labels — app.kubernetes.io/name + app.kubernetes.io/component
+  # is the minimum selector that uniquely identifies the engine pods.
+  selector:
+    app.kubernetes.io/name: cidf-engine
+    app.kubernetes.io/component: ingestion-engine
+
+  ports:
+    # placeholder — nothing listens on 8080 in v0.1.0.
+    # This port entry will be replaced (or supplemented) when a real
+    # endpoint is introduced. See header comment point 4.
+    - name: placeholder
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
