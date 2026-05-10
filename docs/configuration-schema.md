@@ -822,3 +822,236 @@ audit:
                                             # risks audit records outliving the quarantine records
                                             # they reference, or vice versa.
 ```
+
+---
+
+## Onboarding a New Source
+
+This tutorial walks through building a pipeline configuration file from scratch for a new JDBC data source. By the end, you will have a complete config that runs against the local Docker Compose stack and writes to the Bronze Delta table.
+
+**Prerequisite:** The local dev stack is running (`docker compose ... up -d`). See [docs/getting-started.md](getting-started.md) for setup instructions.
+
+---
+
+### Step 1 — Create the file and declare the schema version
+
+Create `examples/configs/my-source.yaml`. Every config file must begin with:
+
+```yaml
+schemaVersion: "1.0"
+```
+
+This is the only valid value for v0.1.0. The config loader rejects any other value at startup, before attempting to connect to the source.
+
+---
+
+### Step 2 — Add metadata
+
+`metadata` identifies the source in audit logs, lineage records, and alerts. Fill in each field:
+
+```yaml
+schemaVersion: "1.0"
+
+metadata:
+  sourceId: "my-source-001"           # Must be lowercase, hyphens only — this is the primary key in the lineage catalog
+  sourceName: "My Source — JDBC"      # Human-readable; shown in Grafana dashboards and Prometheus metric labels
+  sector: "financial-services"        # financial-services | energy | healthcare | government
+                                      # Wrong sector activates the wrong compliance enforcement path
+  owner: "platform-data-engineering"  # The team that receives failure alerts
+  environment: "dev"                  # dev | staging | prod
+                                      # dev: relaxed enforcement, shorter retention defaults
+                                      # prod: full compliance enforcement, immutable Bronze, audit trail required
+  tags:
+    - "onboarding"
+```
+
+**Verify:** run `python -m scripts.validate_config examples/configs/my-source.yaml`. If `schemaVersion` and `metadata` are valid, the validator proceeds past this section.
+
+---
+
+### Step 3 — Configure the connection
+
+Add the `connection` section. For a JDBC source:
+
+```yaml
+connection:
+  type: "jdbc"                                        # jdbc | file | kafka | api
+  credentialsRef: "vault://secret/dev/my-source/jdbc-credentials"
+                                                      # Vault path seeded manually via vault-init.sh
+                                                      # Never put literal credentials here
+  host: "postgres"                                    # Docker Compose service name; use real FQDN in staging/prod
+  port: 5432
+  database: "cidf_dev"
+  jdbcDriver: "postgres"                              # postgres | oracle | teradata
+```
+
+**Create the Vault secret before running the pipeline:**
+
+```bash
+# Source your .env so VAULT_ADDR and VAULT_DEV_ROOT_TOKEN are set
+set -a; source deployment/docker/.env; set +a
+
+vault kv put secret/dev/my-source/jdbc-credentials \
+  username=<db-user> \
+  password=<db-password>
+```
+
+The engine resolves `credentialsRef` at startup. If the path is not found in Vault, the pipeline fails immediately with a `SecretsResolutionError` before attempting any database connection.
+
+---
+
+### Step 4 — Set the ingestion strategy
+
+Choose `full` or `incremental`:
+
+**Full refresh** (small tables, < ~1M rows, or tables without a reliable watermark column):
+
+```yaml
+ingestion:
+  mode: "full"
+  batchSize: 10000      # Rows per JDBC round-trip; increase for narrow rows, decrease for wide rows
+  parallelism: 4
+  schedule: "0 3 * * *" # Daily at 03:00 UTC
+  timeout: 3600
+```
+
+**Watermark-based incremental** (large tables, append-heavy, with a monotonically increasing timestamp or sequence column):
+
+```yaml
+ingestion:
+  mode: "incremental"
+  incrementalColumn: "updated_at"                          # Must be monotonically increasing and indexed
+  watermarkStorage: "s3://bronze/watermarks/my-source-001" # Local dev: s3://bronze/watermarks/my-source-001 (MinIO)
+  batchSize: 10000
+  parallelism: 4
+  schedule: "*/15 * * * *"
+  timeout: 900
+```
+
+The watermark file is read at pipeline start (to get the last-seen value) and written after a successful Bronze write (to advance the cursor). A failed write leaves the watermark unchanged — the next run re-covers the window.
+
+---
+
+### Step 5 — Enable schema enforcement
+
+`schemaEnforcement` determines how the engine handles records that do not match the declared schema. For a new source, start with `discovered-and-log` to learn the schema, then switch to `strict` for production.
+
+**Phase 1 — discover the schema:**
+
+```yaml
+schemaEnforcement:
+  enabled: true
+  mode: "discovered-and-log"            # Infers schema from data; logs any drift vs. registryRef as WARN
+  registryRef: "schemas/my-source-v1.json"  # Must exist in the schema registry; create it first
+```
+
+**Phase 2 — enforce strictly once the schema is stable:**
+
+```yaml
+schemaEnforcement:
+  enabled: true
+  mode: "strict"                        # Aborts the pipeline on any schema violation; no silent pass-through
+  registryRef: "schemas/my-source-v1.json"
+```
+
+Per ADR-005: `registryRef` is required for all file and JDBC sources. The engine rejects configs where `schemaEnforcement.enabled: true` but `registryRef` is absent.
+
+---
+
+### Step 6 — Configure quarantine
+
+Quarantine stores records that fail schema or quality validation, so they can be reviewed and replayed without re-running the full extraction.
+
+```yaml
+qualityRules:
+  enabled: false   # Phase 2 feature — must be false in v0.1.0
+
+quarantine:
+  enabled: true
+  path: "s3://bronze/quarantine/my-source/"  # Local dev: MinIO 'bronze' bucket, quarantine/ prefix
+                                             # Must differ from storage.path
+  retentionDays: 90
+  errorClassification: true                  # Tags each quarantined record with a structured error code
+```
+
+---
+
+### Step 7 — Configure storage
+
+Specify the Bronze Delta table path:
+
+```yaml
+storage:
+  layer: "bronze"         # v0.1.0 writes to Bronze only
+  format: "delta"
+  path: "s3://bronze/my-source/"  # Local dev: MinIO 'bronze' bucket
+  partitionBy:
+    - "ingestion_date"    # Recommended for all sources; enables efficient time-range queries
+  compactionEnabled: false
+```
+
+In local dev, `s3://bronze/...` resolves to MinIO via the `AWS_S3_ENDPOINT` and `AWS_S3_PATH_STYLE_ACCESS` environment variables set in the Docker Compose stack.
+
+---
+
+### Step 8 — Add monitoring and audit
+
+```yaml
+monitoring:
+  metricsEnabled: true
+  prometheusPort: 9094   # Use a port not already taken by other pipelines in the stack
+  slaThresholdSeconds: 3600
+  alertOnFailure: true
+
+audit:
+  enabled: true
+  lineageTracking: true
+  immutableRawEnabled: false  # Set true in prod; enforces write-once on the Bronze path
+  retentionDays: 90           # Extend to 2555 (7 years) for financial services, 1825 (5 years) for energy
+```
+
+---
+
+### Step 9 — Run and verify
+
+**Validate the config file:**
+
+```bash
+python -m scripts.validate_config examples/configs/my-source.yaml
+```
+
+A clean validation output confirms the config is schema-valid. It does not test connectivity.
+
+**Run the pipeline (once a Main class entry point is available in v0.1.0):**
+
+```bash
+docker compose -f deployment/docker/docker-compose.yml run --rm ingestion-engine \
+  --config /app/configs/my-source.yaml
+```
+
+**Verify the Bronze output in MinIO:**
+
+Open http://localhost:9001, navigate to the `bronze` bucket, and confirm a directory at `my-source/ingestion_date=<today>/` exists with `.parquet` files.
+
+**Check the audit log:**
+
+```bash
+docker compose -f deployment/docker/docker-compose.yml exec minio \
+  mc ls local/bronze/audit/
+```
+
+A row in the audit table confirms the pipeline run was recorded. The `status` column will be `SUCCESS` if the Bronze write completed.
+
+---
+
+### Promoting to staging or production
+
+Once the pipeline runs successfully in dev, update the following fields before deploying to staging or production:
+
+- `metadata.environment` → `staging` or `prod`
+- `connection.host` → real database FQDN
+- `connection.sslMode` → `verify-full` (or at minimum `verify-ca`) for any regulated source
+- `audit.immutableRawEnabled` → `true`
+- `audit.retentionDays` → match regulatory requirement for the sector
+- `quarantine.retentionDays` → align with `audit.retentionDays`
+- `schemaEnforcement.mode` → `strict` once the schema is stable
