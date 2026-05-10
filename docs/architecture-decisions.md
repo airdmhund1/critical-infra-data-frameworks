@@ -31,6 +31,12 @@ In each case, the configuration-driven approach produced:
 - Reduced operational burden through standardized monitoring
 - Lower error rates from elimination of copy-paste pipeline code
 
+### Alternatives Considered
+
+- **Fully code-driven pipelines (Apache Flink DSL, custom Spark jobs per source):** Each data source gets a bespoke pipeline implemented in code. Rejected because it replicates the fragmentation problem the framework is designed to solve — every new source requires a full development cycle, and security or quality changes must be applied to each pipeline individually. This was the dominant pattern in the production environments this framework replaces.
+- **Metadata-catalogue-driven orchestration (Apache Atlas, OpenMetadata as control plane):** The catalogue drives pipeline execution rather than static configuration files. Rejected for Phase 1 because catalogue integration adds significant operational overhead and the catalogues themselves require ingestion pipelines — creating a circular dependency for initial onboarding. Catalogue integration is planned for Phase 3.
+- **Low-code ETL tools (AWS Glue visual editor, Azure Data Factory, Informatica):** Visual pipeline builders with proprietary configuration formats. Rejected because they create vendor lock-in, are difficult to version-control, and do not provide the level of security and compliance control required in regulated environments.
+
 ### Consequences
 - Requires upfront investment in framework design before first source can be onboarded
 - Configuration schema must be carefully designed to be expressive enough for diverse sources without becoming overly complex
@@ -61,6 +67,13 @@ This pattern provides:
 - Regulatory compliance (lineage from raw source to final output is traceable)
 
 This pattern was validated in production at a globally systemically important financial institution, where it supported regulatory reporting workflows requiring complete data lineage.
+
+### Alternatives Considered
+
+- **Single-layer raw storage:** All ingested data lands in one location with transformations applied in-place or on read. Rejected because it forces a trade-off between auditability (preserve the raw record) and usability (apply quality rules). In regulated environments, both are required simultaneously.
+- **Two-layer architecture (raw + curated):** A simpler raw-plus-conformed model without a dedicated consumption layer. Rejected because it collapses the separation between data quality enforcement (Silver) and consumption optimisation (Gold), making it harder to serve diverse downstream consumers with different access patterns without duplicating logic.
+- **Data vault modelling:** A highly normalized historised modelling approach. Evaluated and deferred — data vault provides strong auditability but requires significant modelling investment upfront and imposes query complexity that is disproportionate to Phase 1 scope. It remains a viable pattern for the Silver-to-Gold transformation in Phase 3.
+- **Lambda architecture (batch + speed layers):** Separate batch and streaming pipelines merged at query time. Rejected because it doubles operational complexity and maintenance burden. The Bronze-Silver-Gold model supports both batch and streaming ingestion into the same layer structure without a separate speed layer.
 
 ### Consequences
 - Increased storage requirements (data exists in multiple refined states)
@@ -93,6 +106,12 @@ Standard application monitoring (uptime, CPU, memory) is insufficient for regula
 - Operations teams need early warning of degradation before it becomes a compliance issue
 
 Production deployment of this observability approach reduced manual operational interventions by approximately 80% and improved SLA adherence by approximately 20-25 percentage points.
+
+### Alternatives Considered
+
+- **Standard application APM only (Datadog, New Relic, Dynatrace):** General-purpose application performance monitoring covering uptime, latency, and error rates. Rejected as the sole observability layer because it does not capture data-domain metrics (record counts, schema violations, quarantine rates) that regulators require as evidence of data integrity controls. APM tools remain useful as a complementary layer but cannot satisfy the compliance-grade evidence requirement independently.
+- **Log-only observability:** Rely entirely on structured log output without a metrics layer or dashboards. Rejected because log search is insufficient for trend analysis and SLA compliance reporting. Regulators and audit teams require aggregated views over time windows, not log search.
+- **Custom metrics store (build vs. buy):** Build a proprietary metrics collection and storage system tailored to data pipeline observability. Rejected in favour of the Grafana/Prometheus ecosystem, which is widely adopted, open-source, and has existing compliance-oriented dashboard templates for regulated industries.
 
 ### Consequences
 - Monitoring infrastructure adds operational overhead (Grafana, Prometheus, log aggregation)
@@ -128,6 +147,13 @@ Silent schema inference (`inferSchema=true` with no comparison or logging) is ex
 - **NIST CSF 2.0 Identify function**: asset management requires that the schema of data flowing through the system is known and governed, not discovered at runtime.
 - Production incident pattern: in financial services environments, silent schema changes in upstream flat-file feeds have caused incorrect regulatory capital calculations that were not detected until next-day reconciliation — after the reporting deadline.
 - The `discovered-and-log` mode provides a safe path for schema change detection without creating a pipeline failure that blocks time-sensitive ingestion; operators are notified of drift and can update the registered schema after review.
+
+### Alternatives Considered
+
+- **Spark auto-inference with post-hoc validation (Great Expectations, custom assertions):** Allow Spark to infer the schema from the file, then validate the inferred schema against a declared schema using a separate validation layer. Rejected because the inferred schema is applied to the DataFrame before validation can run — type widenings and column renamings have already corrupted the data by the time the assertion fires. The rejection must happen before the schema is applied, not after.
+- **Schema-on-read with no enforcement:** Accept any schema the file presents and push schema reconciliation to downstream consumers. Explicitly rejected for regulated environments: downstream consumers in financial services and energy are regulatory reporting systems where a schema change causing an incorrect calculation may not be detected until after a reporting deadline.
+- **Registry-enforced schemas via Confluent Schema Registry or AWS Glue Schema Registry:** Apply schema enforcement through a centralised registry with producer/consumer contracts. Evaluated as a future option for streaming sources (Kafka). Not applicable to file-based sources where the producer is an external system not under framework control and cannot be required to register schemas.
+- **Manual schema documentation only (data dictionaries, column descriptions):** Document the expected schema in a wiki or data dictionary without programmatic enforcement. Rejected: documentation diverges from reality over time and provides no runtime protection against schema drift.
 
 ### Consequences
 - Every file-based source must have a registered schema (`schemaRef`) — there is no zero-configuration onboarding path for file sources.
