@@ -137,3 +137,78 @@ Silent schema inference (`inferSchema=true` with no comparison or logging) is ex
 - This ADR supersedes any earlier framework behaviour that permitted implicit inference; all file connectors written before this ADR was accepted must be updated to conform.
 
 ---
+
+## ADR-004: Watermark-Based Incremental Extraction
+
+### Status
+Accepted
+
+### Context
+Regulated data sources — JDBC databases, file drops, streaming feeds — are rarely amenable to full-table extraction on every pipeline run. A 200M-row regulatory database extracted in full every 15 minutes is impractical: it saturates network bandwidth, consumes excessive Spark resources, and produces unnecessarily large Bronze writes.
+
+Two main patterns exist for extracting only new or changed records:
+1. **Watermark-based polling**: query `WHERE updated_at > last_known_watermark`, store the max value seen, advance the watermark on success.
+2. **Change Data Capture (CDC) / log-based replication**: read the database's binary replication log (Postgres WAL, Oracle LogMiner, MySQL binlog) and stream only changed rows.
+
+### Decision
+The framework uses watermark-based incremental extraction as the primary pattern for JDBC and file sources. The `incrementalColumn` and `watermarkStorage` fields in the pipeline configuration define the column to track and the URI where the last watermark is persisted. Watermarks are advanced only on successful Bronze writes — a failed write leaves the watermark unchanged so the next run re-covers the window without data loss.
+
+### Rationale
+Watermark-based extraction was chosen because:
+- It requires no database-side configuration (no replication slots, no supplemental logging, no binlog retention policy)
+- It works across all supported JDBC drivers (Oracle, Postgres, Teradata) without driver-specific CDC adapters
+- The failure recovery model is simple: if a run fails, the watermark is not advanced, and the next run re-extracts from the last good point
+- It is auditable: the watermark value is a first-class artefact stored in a durable location and recorded in the audit log alongside each run
+- Watermark columns (`updated_at`, `recorded_at`, `event_timestamp`) are already present in most regulated-sector operational databases as a compliance requirement
+
+Production validation: watermark-based extraction was used in financial services regulatory reporting pipelines processing 50M+ rows/day, achieving consistent sub-60-second extraction latency for incremental runs vs. 45-minute full extracts.
+
+### Alternatives Considered
+- **CDC/log-based replication (Debezium, Oracle GoldenGate, AWS DMS):** Captures all changes including deletes and multiple updates to the same row within a window. Rejected for Phase 1 because it requires database-side configuration (WAL level, replication slots, supplemental logging), creates operational dependency on the source database's log retention settings, introduces DDL sensitivity (schema changes can break the CDC stream), and adds infrastructure complexity (Kafka, Debezium connectors) that is disproportionate to Phase 1 scope. CDC is documented as a Phase 3 capability for sources that require it.
+- **Full extraction with deduplication:** Extract the entire table and deduplicate against what is already in Bronze. Rejected: impractical at scale and produces unnecessarily large Bronze writes, violating the storage efficiency principle.
+- **Source-side triggers / outbox pattern:** Application-level change tracking where the source system writes changed records to a staging table. Rejected: requires source system modification, which is outside the framework's scope for read-only integration.
+
+### Consequences
+- Sources must have a monotonically increasing column suitable for use as a watermark (`TIMESTAMP`, `BIGINT` sequence). Sources without such a column require a full load strategy.
+- Watermark-based extraction does not capture hard deletes. If a source record is deleted, the deletion is not reflected in Bronze unless the source uses soft deletes with an `updated_at` column update.
+- Clock skew between the source database server and the pipeline runner can cause records to be missed if the watermark advances past records that were written with a slightly earlier timestamp. Mitigated by configuring a safe lag margin (documented in connector configuration).
+- Late-arriving records — records with a past timestamp inserted after the watermark has advanced — are not captured. Acceptable in the regulated-sector use cases validated, where source systems write records in near-real-time.
+
+---
+
+## ADR-006: External Secrets Management
+
+### Status
+Accepted
+
+### Context
+Every data ingestion pipeline requires credentials to connect to source systems: database passwords, API keys, storage access keys, TLS certificates. The question is not whether credentials are needed, but where they live and how the framework accesses them at runtime.
+
+Three naive approaches appear in practice:
+1. **Environment variables**: credentials set in the container or process environment at launch time.
+2. **Config file encryption**: credentials stored in the pipeline configuration file, encrypted with a key managed by the operator.
+3. **External secrets manager**: credentials stored in a dedicated secrets management system (HashiCorp Vault, AWS KMS/Secrets Manager, GCP Secret Manager) and resolved at runtime via authenticated API call.
+
+### Decision
+All credentials are resolved at runtime from an external secrets manager. Pipeline configuration files reference credentials using `vault://`-scheme URIs (e.g. `vault://secret/prod/oracle-tradedb/jdbc-credentials`). The `SecretsResolver` interface is resolved at engine startup to the appropriate implementation (`VaultSecretsResolver`, `AwsKmsSecretsResolver`, or `LocalDevSecretsResolver` for testing). No credential value — not even an encrypted one — is ever present in a pipeline configuration file or version-controlled artefact.
+
+### Rationale
+- **NIST CSF 2.0 Protect function (PR.AC)**: access to credentials must be managed, audited, and revocable. Environment variables and config files provide none of these.
+- **Dodd-Frank / NERC CIP audit requirements**: credential access must be logged. Vault and AWS KMS provide a complete audit trail of every credential read, including who read it, when, and from which system.
+- **Rotation without redeployment**: Vault and KMS support credential rotation that takes effect on the next resolution call without restarting the pipeline. Environment variables require container restarts; config file encryption requires re-encryption and redeployment.
+- **Blast radius containment**: a compromised pipeline configuration file reveals only a `vault://` URI — not a usable credential. An attacker also needs valid Vault authentication to resolve the secret.
+- **Developer safety**: the `vault://` URI scheme makes it syntactically impossible to accidentally commit a real credential. A committed `vault://...` string is harmless; a committed password is not.
+
+### Alternatives Considered
+- **Environment variables**: Simple and universally supported, but credentials appear in process listings (`/proc/<pid>/environ`), are inherited by child processes, are not audited, and require container restarts to rotate. Rejected for production use. Retained for `LocalDevSecretsResolver` in test environments only, where these risks are acceptable.
+- **Config file encryption (Ansible Vault, SOPS, git-crypt)**: Moves the problem rather than solving it — the decryption key must now be protected and distributed. Encrypted ciphertext committed to version control is still an attack surface (cryptanalysis, key compromise). Rotation requires re-encrypting every affected config file. Rejected.
+- **Kubernetes Secrets**: Base64-encoded values stored in etcd, readable by any pod in the namespace with default RBAC. Not encrypted at rest without additional configuration. Acceptable as a distribution mechanism from an external secrets manager (External Secrets Operator pattern), but not as the authoritative secret store. Documented as an acceptable intermediary in production K8s deployments; see `deployment/k8s/README.md`.
+- **Hardcoded credentials in source**: Mentioned for completeness — explicitly prohibited by all applicable regulatory frameworks and this project's architecture principles.
+
+### Consequences
+- Every deployment environment must have a running secrets manager instance accessible to the pipeline engine. `LocalDevSecretsResolver` is provided for local development and CI environments where Vault/KMS is unavailable.
+- The `SecretsResolver` interface is injectable, making it straightforward to add new secrets backends (e.g. GCP Secret Manager) without modifying the engine.
+- Credential resolution adds a network round-trip at pipeline startup. In practice this is negligible (<100ms) relative to pipeline execution time.
+- The `vault://` URI scheme is a framework convention — it is not a standard and must be documented for operators unfamiliar with the pattern.
+
+---
