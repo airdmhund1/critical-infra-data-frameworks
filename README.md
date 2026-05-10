@@ -67,9 +67,66 @@ See [docs/configuration-schema.md](docs/configuration-schema.md) for the full sc
 
 ## Sector Examples
 
-Annotated pipeline configuration files for financial services and energy are in [`examples/configs/`](examples/configs/). Each file documents which configuration fields address which regulatory requirement (Dodd-Frank, NERC CIP-007, NIST CSF 2.0).
+Annotated pipeline configuration files for financial services and energy are in [`examples/configs/`](examples/configs/). Key compliance-driven fields are highlighted below.
 
-Branch 3 will expand this section with embedded annotated YAML snippets.
+### Financial Services — Oracle Trade Execution Records (Dodd-Frank)
+
+Source: [`examples/configs/financial-services-oracle-trades.yaml`](examples/configs/financial-services-oracle-trades.yaml)
+
+```yaml
+metadata:
+  sector: "financial-services"   # Activates Dodd-Frank compliance enforcement paths
+
+ingestion:
+  mode: "incremental"
+  incrementalColumn: "TRADE_TIMESTAMP"
+  watermarkStorage: "s3://pipeline-state/watermarks/fs-oracle-trades-001"
+  # Watermark persisted to S3 so a failed run re-covers the window on retry — no records
+  # fall between runs. Required for reproducible, gap-free extraction (Dodd-Frank audit trail).
+
+schemaEnforcement:
+  mode: "strict"                 # Per ADR-005: silent schema inference prohibited.
+  registryRef: "schemas/financial-services/trade-execution-v2.json"
+  # Schema violations abort the pipeline; corrupt records are never written to Bronze.
+
+storage:
+  format: "delta"                # ACID transactions and time travel for audit compliance.
+
+audit:
+  immutableRawEnabled: true      # Write-once enforcement on Bronze path; satisfies
+  #                              # Dodd-Frank 17 CFR Part 45 immutable recordkeeping obligation.
+  retentionDays: 2555            # 7-year retention minimum for U.S. financial services
+  #                              # regulatory reporting (2555 days).
+```
+
+### Energy — EV Charging Station Telemetry (NERC CIP)
+
+Source: [`examples/configs/energy-ev-telemetry-csv.yaml`](examples/configs/energy-ev-telemetry-csv.yaml)
+
+```yaml
+metadata:
+  sector: "energy"               # Activates NERC CIP compliance enforcement paths.
+
+connection:
+  fileFormat: "csv"              # Selects CsvFileConnector via the connector registry.
+
+schemaEnforcement:
+  mode: "strict"                 # Per ADR-005: CsvFileConnector applies the registered schema on read.
+  registryRef: "schemas/energy/ev-charging-telemetry-v1.json"
+  # Non-conforming records raise ConnectorError — no silent pass-through.
+
+ingestion:
+  mode: "full"                   # Nightly drop pattern; each run processes the complete file delivery.
+
+quarantine:
+  enabled: true                  # Malformed telemetry records written to quarantine with error codes,
+  #                              # never silently dropped. Supports NERC CIP-007 R5 data integrity.
+
+audit:
+  immutableRawEnabled: true      # NERC CIP-007 R5 data-integrity requirement: write-once on Bronze path.
+  retentionDays: 1825            # 5-year retention (1825 days); satisfies NERC CIP-007 R5 and
+  #                              # CIP-008 R3 event-log and incident-response recordkeeping requirements.
+```
 
 ## Compliance Mapping
 
