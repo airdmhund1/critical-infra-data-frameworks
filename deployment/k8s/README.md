@@ -13,7 +13,7 @@ deployment/k8s/
     ├── serviceaccount.yaml   # ServiceAccount: cidf-engine
     ├── configmap.yaml        # ConfigMap: cidf-engine-config
     ├── secret.yaml           # Secret skeleton: cidf-engine-secrets (reference only — no real values)
-    ├── deployment.yaml       # Deployment: cidf-engine (image: cidf/ingestion-engine:0.1.0-SNAPSHOT)
+    ├── deployment.yaml       # Deployment: cidf-engine (image: cidf/ingestion-engine:0.1.0)
     └── service.yaml          # Service: cidf-engine (ClusterIP, port 8080 placeholder)
 ```
 
@@ -38,7 +38,7 @@ Start a cluster with enough resources for the JVM-based ingestion engine:
 minikube start --cpus=4 --memory=4g --driver=docker
 ```
 
-Then make the local Docker daemon visible inside minikube so that the locally-built image `cidf/ingestion-engine:0.1.0-SNAPSHOT` is found without a registry push:
+Then make the local Docker daemon visible inside minikube so that the locally-built image `cidf/ingestion-engine:0.1.0` is found without a registry push:
 
 ```bash
 eval $(minikube docker-env)
@@ -64,7 +64,7 @@ kubectl cluster-info --context kind-cidf-dev
 With kind, Docker image state is not shared between your host and the cluster. You must explicitly load the local image into the cluster after every build:
 
 ```bash
-kind load docker-image cidf/ingestion-engine:0.1.0-SNAPSHOT --name cidf-dev
+kind load docker-image cidf/ingestion-engine:0.1.0 --name cidf-dev
 ```
 
 ---
@@ -145,7 +145,7 @@ kubectl describe deployment cidf-engine -n cidf-dev
 kubectl logs -l app.kubernetes.io/name=cidf-engine -n cidf-dev
 ```
 
-### Expected pod status at v0.1.0-SNAPSHOT
+### Expected pod status at v0.1.0
 
 **The pod will enter `CrashLoopBackOff`. This is expected and is not a misconfiguration.**
 
@@ -303,10 +303,10 @@ The dev resource limits (`250m`–`1000m` CPU, `512Mi`–`2Gi` memory) are conse
 
 | Symptom | Likely cause | Resolution |
 |---------|-------------|------------|
-| Pod stuck in `CrashLoopBackOff` | No `Main-Class` in JAR (v0.1.0-SNAPSHOT) | Expected. See Section 2, Step 6 note. Exec into the pod to inspect the environment. |
+| Pod stuck in `CrashLoopBackOff` | No `Main-Class` in JAR (v0.1.0) | Expected. See Section 2, Step 6 note. Exec into the pod to inspect the environment. |
 | Pod stuck in `Pending` | Secret or ConfigMap missing | Ensure Steps 1 and 2 in Section 2 were completed before `kubectl apply -f deployment/k8s/dev/`. |
 | `ImagePullBackOff` with minikube | Image not in minikube's daemon | Re-run `eval $(minikube docker-env)` in your build shell, then rebuild the image. |
-| `ImagePullBackOff` with kind | Image not loaded into kind cluster | Run `kind load docker-image cidf/ingestion-engine:0.1.0-SNAPSHOT --name cidf-dev`. |
+| `ImagePullBackOff` with kind | Image not loaded into kind cluster | Run `kind load docker-image cidf/ingestion-engine:0.1.0 --name cidf-dev`. |
 | ConfigMap values not updated after `kubectl apply` | Pod not restarted after ConfigMap change | Run `kubectl rollout restart deployment/cidf-engine -n cidf-dev`. Pods do not automatically reload ConfigMap changes. |
 | `replace-me` value rejected at runtime | Secret not overridden before apply | Follow Section 2, Step 2 to create the Secret with real dev credentials before applying the full manifest set. |
 | `emptyDir` at `/app/configs` has no files | `pipeline-configs` volume is still the placeholder | Follow Section 3 to replace the emptyDir with a hostPath or ConfigMap volume. |

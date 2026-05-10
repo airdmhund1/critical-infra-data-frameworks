@@ -6,7 +6,7 @@
 #
 #   1. BATCH ENGINE — NO LISTENING PORT: The ingestion engine is a batch job,
 #      not a long-running server. `java -jar /app/engine.jar` does not bind
-#      to any network port. Nothing in v0.1.0-SNAPSHOT actually listens on
+#      to any network port. Nothing in v0.1.0 currently listens on
 #      the port declared below.
 #
 #   2. PLACEHOLDER SERVICE: This Service exists to reserve the cidf-engine
@@ -24,7 +24,7 @@
 #      user-facing API and must not be exposed externally.
 #
 #   4. PORT 8080 IS A PLACEHOLDER: Nothing listens on 8080 in
-#      v0.1.0-SNAPSHOT. The port value is a conventional placeholder. Update
+#      v0.1.0. The port value is a conventional placeholder. Update
 #      (or add additional port entries) when a real endpoint is introduced.
 #
 # =============================================================================
@@ -50,7 +50,7 @@ spec:
     app.kubernetes.io/component: ingestion-engine
 
   ports:
-    # placeholder — nothing listens on 8080 in v0.1.0-SNAPSHOT.
+    # placeholder — nothing listens on 8080 in v0.1.0.
     # This port entry will be replaced (or supplemented) when a real
     # endpoint is introduced. See header comment point 4.
     - name: placeholder

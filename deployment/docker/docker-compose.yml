@@ -51,13 +51,13 @@ services:
   #
   # Until a Main class is wired (tracked in a later issue), invoking
   # `java -jar /app/engine.jar` on this image will fail with "no main
-  # manifest attribute". This is expected for v0.1.0-SNAPSHOT.
+  # manifest attribute". From v0.1.0 a Main class entry point is available; see deployment instructions.
   # ---------------------------------------------------------------------------
   ingestion-engine:
     build:
       context: ../..
       dockerfile: deployment/docker/Dockerfile
-    image: cidf/ingestion-engine:0.1.0-SNAPSHOT
+    image: cidf/ingestion-engine:0.1.0
     container_name: cidf-ingestion-engine
     restart: "no"
     depends_on:
