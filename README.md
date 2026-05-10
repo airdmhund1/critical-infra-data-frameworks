@@ -5,14 +5,23 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/ci.yml/badge.svg)](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/ci.yml)
 [![Dependency Check](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/dependency-check.yml/badge.svg)](https://github.com/airdmhund1/critical-infra-data-frameworks/actions/workflows/dependency-check.yml)
+[![Version](https://img.shields.io/badge/version-0.1.0--SNAPSHOT-orange.svg)](https://github.com/airdmhund1/critical-infra-data-frameworks/releases)
 
-## Overview
+## Project Summary
 
-This project provides production-proven reference architectures and supporting tooling designed for organizations operating in regulated critical-infrastructure environments — including financial services, energy, and insurance.
+This framework delivers a configuration-driven Spark/Scala ingestion engine for regulated critical-infrastructure environments. Phase 1 (v0.1.0) includes: JDBC source connectors for Oracle, Teradata, and Postgres; file source connectors for CSV, Parquet, and JSON; a Bronze-layer writer using Delta Lake with time-partitioned, append-only writes; an audit event log; and Kubernetes and Docker packaging. New data sources are onboarded by adding a YAML configuration file — no pipeline code is written per source.
 
-These frameworks address a documented challenge: organizations in regulated sectors repeatedly build fragmented, one-off data-processing systems from scratch, despite facing substantially similar underlying requirements for secure ingestion, automated quality validation, real-time monitoring, and compliance-grade observability. This fragmentation creates inconsistent security postures across sectors that are vital to national security and economic stability.
+Design constraints that make the framework usable in regulated environments: schema enforcement via ADR-005 (strict or discovered-and-log modes — no silent Spark inference), watermark-based incremental extraction with failure-safe watermark advancement, external secrets management via HashiCorp Vault or AWS KMS (no credentials in configuration files), SHA-256 batch checksum computed from raw input rows before Bronze write, append-only Delta table properties enforced after each write, and an audit event log written on every pipeline run regardless of success or failure. Technology stack: Apache Spark 3.5.3, Delta Lake 3.2.1, Scala 2.13, Kubernetes-deployable, Apache 2.0.
 
-The reference architectures in this repository are generalized from patterns designed, built, and validated in production across three critical-infrastructure sectors, achieving documented improvements in processing performance, system reliability, and operational efficiency.
+## Problem Statement
+
+The National Cybersecurity Strategy (2023) Pillar One identifies persistent data infrastructure fragmentation as a systemic risk to critical-infrastructure sectors — organisations building one-off systems for each data source produce inconsistent security postures with no standardised baseline for regulators to evaluate. The DOE Artificial Intelligence Strategy (2025) names "persistent data silos" and "legacy infrastructure" as specific barriers to secure AI adoption in the energy sector, and calls for standardised data infrastructure.
+
+The concrete operational consequence: each organisation bears the full burden of selecting, integrating, securing, and validating Apache Spark, Delta Lake, Vault, Kubernetes, and Prometheus — individually, against its own regulatory requirements. Teams building from scratch for each source incur weeks of development per source, produce inconsistent schema enforcement and audit trails, and must re-solve credential management, watermark tracking, and quarantine design independently. This framework provides a tested, documented, and compliance-mapped starting point that reduces that duplication.
+
+## Architecture Overview
+
+See [docs/reference-architecture.md](docs/reference-architecture.md) for the full architecture description. The embedded diagram below (Branch 2) will depict the eight-layer system: Data Sources → Source Connectors → Configuration & Metadata Service → Ingestion Engine → Quality & Validation Engine → Lakehouse Storage → Orchestration & Monitoring → Security Layer.
 
 ## Quick Start
 
@@ -30,55 +39,25 @@ docker compose -f deployment/docker/docker-compose.yml --env-file deployment/doc
 
 See [docs/getting-started.md](docs/getting-started.md) for the full step-by-step guide including Vault credential seeding, MinIO bucket creation, and running the smoke test.
 
-## Problem Statement
+## Configuration Guide
 
-Critical-infrastructure operators face a common set of data-engineering challenges:
+Pipeline sources are defined in YAML configuration files — no custom code required for new source onboarding. The configuration schema covers connectivity (JDBC, file, Kafka, API), schema enforcement mode (strict or discovered-and-log), ingestion strategy (full or watermark-based incremental), quarantine settings, and audit configuration.
 
-- **High-volume ingestion** under strict latency and reliability constraints
-- **Automated data-quality enforcement** with full audit trails for regulatory compliance
-- **Real-time monitoring** with compliance-grade observability and alerting
-- **Secure protocol handling** across distributed infrastructure components
+See [docs/configuration-schema.md](docs/configuration-schema.md) for the full schema reference.
 
-While individual open-source tools address isolated parts of this problem (e.g., Apache Spark for processing, Great Expectations for validation, Grafana for monitoring), each organization currently bears the full burden of selecting, integrating, securing, and validating these components against its own regulatory requirements.
+## Sector Examples
 
-This project provides an integrated, tested, and documented starting point — reducing duplication, improving baseline security, and accelerating modernization.
+Annotated pipeline configuration files for financial services and energy are in [`examples/configs/`](examples/configs/). Each file documents which configuration fields address which regulatory requirement (Dodd-Frank, NERC CIP-007, NIST CSF 2.0).
 
-## Core Components
+Branch 3 will expand this section with embedded annotated YAML snippets.
 
-| Component | Description | Status |
-|-----------|-------------|--------|
-| **Ingestion Framework** | Configuration-driven data ingestion enabling new sources to be onboarded through config files rather than custom code | Planned — Phase 1 |
-| **Quality Validation Engine** | Rules-based validation with schema conformance, referential integrity, completeness checks, and automated quarantine | Planned — Phase 2 |
-| **Monitoring & Observability** | Pre-configured dashboards and alerting for pipeline throughput, failure detection, and SLA adherence | Planned — Phase 2 |
-| **Compliance Mapping** | Documentation connecting framework capabilities to sector-specific regulatory requirements | Planned — Phase 3 |
-| **Deployment Guides** | Step-by-step documentation for evaluation, testing, and adaptation | Planned — Phase 3 |
+## Compliance Mapping
 
-## Design Principles
+The framework maps to four U.S. regulatory frameworks: Dodd-Frank Act enhanced prudential standards (financial services), NERC CIP-007 and CIP-008 (energy critical infrastructure protection), NIST Cybersecurity Framework 2.0 (cross-sector), and the National Cybersecurity Strategy 2023 (Pillar One).
 
-- **Configuration over code**: New data sources onboarded through metadata configuration, not bespoke pipeline development
-- **Secure by design**: Security, encryption, and audit-trail capabilities built into the architecture, not added as afterthoughts
-- **Sector-adaptable**: Core patterns are consistent; sector-specific requirements are handled through configurable compliance modules
-- **Observable**: Built-in monitoring, alerting, and operational visibility at every layer
-- **Open and permissive**: Released under Apache 2.0 — free for commercial, government, and academic use
+See [docs/compliance-mapping.md](docs/compliance-mapping.md) for the field-level mapping between framework capabilities and specific regulatory controls.
 
-## Technology Foundation
-
-The reference architectures are built on widely adopted, production-grade open-source technologies:
-
-- **Processing**: Apache Spark (Scala/Python)
-- **Orchestration**: Configuration-driven job management with enterprise scheduler integration
-- **Storage**: Lakehouse architecture (Bronze/Silver/Gold layers)
-- **Monitoring**: Grafana, Prometheus
-- **Deployment**: Docker, Kubernetes, CI/CD automation
-- **Security**: Certificate-based authentication, encrypted communication, audit logging
-
-## Project Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for the detailed phased release plan.
-
-**Phase 1** (Months 1–2): Core ingestion framework and documentation  
-**Phase 2** (Months 3–4): Quality validation engine and monitoring templates  
-**Phase 3** (Months 5–6): Compliance mapping, deployment guides, and community engagement
+Note: the compliance mapping documents where framework capabilities *support* regulatory requirements. This is not a certification or legal opinion.
 
 ## Architecture Decision Records
 
@@ -86,13 +65,13 @@ The [Architecture Decision Records](docs/architecture-decisions.md) document the
 
 Each ADR captures: the context that made a decision necessary, the decision taken, the rationale and evidence behind it, the alternatives considered and rejected, and the consequences for operators and contributors.
 
-## Alignment with Federal Priorities
+## Roadmap
 
-This project supports objectives identified in:
+See [ROADMAP.md](ROADMAP.md) for the detailed phased release plan.
 
-- **National Cybersecurity Strategy (2023)** — Pillar One: Defend Critical Infrastructure, calling for "new and innovative capabilities" and "secure-by-design" technologies
-- **DOE Artificial Intelligence Strategy (2025)** — identifying "persistent data silos" and "legacy infrastructure" as barriers to secure AI adoption, and calling for standardized data infrastructure
-- **Federal Data Strategy (2020)** — principles of interoperability, data governance, and standardized data management
+**Phase 1** (Months 1–2): Core ingestion framework and documentation  
+**Phase 2** (Months 3–4): Quality validation engine and monitoring templates  
+**Phase 3** (Months 5–6): Compliance mapping, deployment guides, and community engagement
 
 ## Contributing
 
