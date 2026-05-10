@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 ThisBuild / organization := "com.criticalinfra"
-ThisBuild / version      := "0.1.0"
+ThisBuild / version      := "0.2.0-SNAPSHOT"
 ThisBuild / scalaVersion := Dependencies.Versions.scala
 
 // Compiler flags: enable additional linting
