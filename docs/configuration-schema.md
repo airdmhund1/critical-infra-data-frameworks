@@ -1055,3 +1055,211 @@ Once the pipeline runs successfully in dev, update the following fields before d
 - `audit.retentionDays` → match regulatory requirement for the sector
 - `quarantine.retentionDays` → align with `audit.retentionDays`
 - `schemaEnforcement.mode` → `strict` once the schema is stable
+
+---
+
+## Common Patterns
+
+### Pattern 1 — Watermark-based incremental extraction
+
+Use when: the source table is large (> ~1M rows), append-heavy, and has a monotonically increasing timestamp or integer column.
+
+The `incrementalColumn` must be:
+- Indexed at the source (otherwise each run performs a full table scan filtered in-memory)
+- Monotonically increasing (equal timestamps in a batch are all included on the next run due to `>=` comparison)
+- Not nullable (null values in the watermark column are excluded from extraction silently)
+
+```yaml
+ingestion:
+  mode: "incremental"
+  incrementalColumn: "updated_at"          # Indexed TIMESTAMP or BIGINT column
+  watermarkStorage: "s3://bronze/watermarks/source-id/"
+  batchSize: 25000
+  parallelism: 8                           # Sets numPartitions for Spark JDBC parallel reads
+  schedule: "*/15 * * * *"
+  timeout: 900                             # Must be < schedule interval to prevent overlapping runs
+```
+
+**Watermark advancement:** the engine writes `MAX(incrementalColumn)` to `watermarkStorage` only after a successful Bronze write. A pipeline failure leaves the watermark file unchanged.
+
+**Clock skew:** if the source database server clock runs ahead of the pipeline runner, records written during the skew window may be missed. Mitigate by adding a configurable lag to the watermark (currently a manual config adjustment — tracked for Phase 2).
+
+---
+
+### Pattern 2 — Full refresh
+
+Use when: the source table is small (< ~500K rows), has no reliable watermark column, or requires a complete snapshot on every run (e.g. lookup tables, reference data, registry data).
+
+```yaml
+ingestion:
+  mode: "full"
+  batchSize: 10000
+  parallelism: 4
+  schedule: "0 3 * * *"
+  timeout: 3600
+```
+
+**Storage consideration:** full refresh writes a new partition on every run. With `partitionBy: ["ingestion_date"]`, each day's run produces a new immutable partition in the Bronze Delta table. Querying the latest version of the data requires filtering on `MAX(ingestion_date)` or using Delta time travel. Do not use full refresh for large tables — each run writes the entire table to Bronze and the storage cost compounds daily.
+
+---
+
+### Pattern 3 — Parallel read tuning for large JDBC sources
+
+When `parallelism > 1`, the JDBC connector splits the table into `parallelism` ranges on a numeric partition column and reads them concurrently. This requires three additional fields:
+
+```yaml
+ingestion:
+  mode: "incremental"
+  incrementalColumn: "event_ts"
+  watermarkStorage: "s3://bronze/watermarks/source-id/"
+  batchSize: 50000
+  parallelism: 16                         # Number of Spark tasks and JDBC splits
+  schedule: "0 */2 * * *"
+  timeout: 7200
+```
+
+Add to `connection` (in supported connectors — currently OracleJdbcConnector and PostgresJdbcConnector):
+
+```yaml
+connection:
+  type: "jdbc"
+  credentialsRef: "vault://secret/prod/source/jdbc-credentials"
+  host: "db.example.com"
+  port: 5432
+  database: "source_db"
+  jdbcDriver: "postgres"
+  partitionColumn: "id"                   # Must be a numeric column; used to split the read range
+  lowerBound: "1"                         # Minimum value of partitionColumn (approximate is fine)
+  upperBound: "100000000"                 # Maximum value of partitionColumn (approximate is fine)
+```
+
+**When to tune:** use parallel reads when a single-threaded JDBC read exceeds the pipeline `timeout`. Start with `parallelism: 4` and increase in powers of 2 until throughput plateaus. The optimal value depends on source database connection limits and the Spark cluster size.
+
+**Risk:** setting `parallelism` too high causes the source database to open many concurrent connections and can trigger connection-pool exhaustion or query-prioritisation policies on the source. Coordinate with the DBA team before using `parallelism > 8` on production sources.
+
+---
+
+### Pattern 4 — Multi-file glob sources (CSV, JSON, Parquet)
+
+For file sources, `filePath` accepts Spark glob patterns. The connector passes the pattern directly to `spark.read`, which resolves it at runtime.
+
+```yaml
+connection:
+  type: "file"
+  credentialsRef: "vault://secret/prod/ev-telemetry/storage-credentials"
+  filePath: "s3://inbound-ev-telemetry/drops/date=*/station-*.csv"
+  # Picks up all per-station CSV files under any date-partitioned drop directory.
+  # Supported patterns:
+  #   *       — matches any sequence of characters within a single path segment
+  #   ?       — matches exactly one character
+  #   {a,b}   — matches either a or b
+  #   [abc]   — matches any single character in the set
+  fileFormat: "csv"
+```
+
+**Multiline JSON caveat:** the `MultilineArray` format reads each file as a self-contained JSON document. Glob patterns with multiline JSON files are not recommended — Spark reads each matched file independently, so a JSON array split across two files will not be parsed correctly. Use `JsonLines` (default) for multi-file JSON ingestion.
+
+**Partition discovery:** Spark natively discovers Hive-style partitions (e.g. `date=2026-05-01`) in the glob path. The discovered partition value is available as a column in the DataFrame without any additional configuration.
+
+---
+
+## Troubleshooting
+
+### Error 1 — `incrementalColumn` missing for incremental mode
+
+**Symptom:**
+```
+ConfigurationError: field=ingestion.incrementalColumn, message=incrementalColumn is required when mode is Incremental
+```
+
+**Root cause:** `ingestion.mode` is set to `"incremental"` but `incrementalColumn` is not present in the config.
+
+**Fix:**
+```yaml
+ingestion:
+  mode: "incremental"
+  incrementalColumn: "updated_at"   # Add this field
+  watermarkStorage: "s3://..."      # Also required for incremental mode
+```
+
+Both `incrementalColumn` and `watermarkStorage` are required when `mode: "incremental"`. The engine validates their presence at startup.
+
+---
+
+### Error 2 — Vault credentials path not found
+
+**Symptom:**
+```
+SecretsResolutionError: could not resolve vault://secret/prod/my-source/jdbc-credentials — HTTP 404
+```
+or the pipeline starts and immediately exits with a non-zero code and no database connection attempt in the logs.
+
+**Root cause:** the `credentialsRef` path does not exist in Vault. Either the path was not seeded, the Vault address is wrong, or the Vault token does not have read permission on that path.
+
+**Fix:**
+
+1. Verify Vault is reachable: `curl -s http://localhost:8200/v1/sys/health | jq .sealed`
+2. Verify the path exists: `vault kv get secret/prod/my-source/jdbc-credentials`
+3. If the path is missing, seed it: `vault kv put secret/prod/my-source/jdbc-credentials username=<u> password=<p>`
+4. Verify the engine's `VAULT_TOKEN` environment variable has `kv read` policy on the path
+
+---
+
+### Error 3 — Schema registry reference not found
+
+**Symptom:**
+```
+ConnectorError: source=my-source-001, cause=schemaRef not found in registry: schemas/my-source/v1.json
+```
+
+**Root cause:** `schemaEnforcement.registryRef` points to a JSON Schema document that does not exist at the specified path in the schema registry, or the registry is not mounted at the expected path.
+
+**Fix:**
+
+1. Confirm the schema file exists: `ls schemas/my-source/v1.json`
+2. If missing, create the schema document. For a JDBC source, run a one-off `discovered-and-log` run to infer the schema, then register it:
+   ```yaml
+   schemaEnforcement:
+     mode: "discovered-and-log"   # Temporary — logs the inferred schema as WARN
+     registryRef: "schemas/my-source/v1.json"
+   ```
+   Capture the inferred schema from the WARN log, save it as `schemas/my-source/v1.json`, then switch back to `strict`.
+
+---
+
+### Error 4 — Quarantine path collides with Bronze storage path
+
+**Symptom:**
+```
+ConfigurationError: field=quarantine.path, message=quarantine path must differ from storage path
+```
+
+**Root cause:** `quarantine.path` and `storage.path` are set to the same value. The engine validates at startup that the two paths are distinct, because writing quarantined records to the same location as valid records would corrupt the Bronze layer.
+
+**Fix:**
+```yaml
+storage:
+  path: "s3://bronze/my-source/"
+
+quarantine:
+  path: "s3://bronze/quarantine/my-source/"  # Different path — quarantine/ prefix or a separate bucket
+```
+
+---
+
+### Error 5 — `schemaVersion` rejected by the config loader
+
+**Symptom:**
+```
+SchemaValidationError: schemaVersion "2.0" is not valid — expected "1.0"
+```
+or the pipeline refuses to start with an error mentioning an unknown field or unexpected value.
+
+**Root cause:** either (a) `schemaVersion` is set to a value other than `"1.0"`, or (b) the config file uses a field that was added in a later schema version and is not recognised by the v0.1.0 engine.
+
+**Fix:**
+```yaml
+schemaVersion: "1.0"   # The only valid value for v0.1.0
+```
+
+If you are running a newer version of the engine, check `docs/configuration-schema.md` for the correct `schemaVersion` value and any new required fields.
